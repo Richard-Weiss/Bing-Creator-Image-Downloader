@@ -7,7 +7,7 @@ Downloads all Bing Creator images from a collection
 
 ### How to use
 * Clone the repository or download and unzip
-* Change the variable `gecko_path` to the path of the folder where you extracted the gecko driver
+* Change the variable `binary_path` in the main.py file to the path of the folder where you extracted the gecko driver
 * Go to https://www.bing.com/saves?&FORM=SAVBIC&collId=3
 * Select a single image from the collection
 * Click `select all` in the ribbon that appears
