@@ -1,0 +1,4 @@
+aiofiles==23.2.1
+aiohttp==3.8.4
+arsenic==21.8
+structlog==20.2.0
