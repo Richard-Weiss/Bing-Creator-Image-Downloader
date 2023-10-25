@@ -1,5 +1,7 @@
 import logging
+import re
 import sys
+import unicodedata
 
 import aiofiles
 import asyncio
@@ -61,7 +63,8 @@ async def download_and_save_image(session, src, alt, index):
     try:
         async with session.get(src) as response:
             if response.status == 200:
-                filename = f"{alt}_{str(index)}.jpg"
+                alt = await slugify(alt)
+                filename = f"{alt[:50]}_{str(index)}.jpg"
                 async with aiofiles.open(filename, "wb") as f:
                     await f.write(await response.read())
                 logging.info(f"Downloading image from: {src}")
@@ -70,6 +73,23 @@ async def download_and_save_image(session, src, alt, index):
                 print(f"Failed to download {src}")
     except Exception as e:
         print(e)
+
+
+async def slugify(text):
+    """
+    Convert spaces or repeated dashes to single dashes. Remove characters that aren't alphanumerics,
+    underscores, or hyphens. Convert to lowercase. Also strip leading and
+    trailing whitespace, dashes, and underscores.
+    Source: https://github.com/django/django/blob/main/django/utils/text.py
+    """
+    text = str(text)
+    text = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    text = re.sub(r"[^\w\s-]", "", text.lower())
+    return re.sub(r"[-\s]+", "-", text).strip("-_")
 
 
 def set_arsenic_log_level(level=logging.WARNING):
@@ -85,11 +105,9 @@ def set_arsenic_log_level(level=logging.WARNING):
 async def main():
     start = time.time()
 
-    with open("images_clipboard.txt", "r") as f:
+    with open("images_clipboard.txt", "r", encoding='utf8') as f:
         content = f.read().splitlines()
-    lines = [line for line in content
-             if line != "www.bing.com" and line != ""]
-    image_url_list = [lines[i + 1] for i in range(0, len(lines), 2)]
+    image_url_list = [line for line in content if line.startswith("https://www.bing.com/images/create")]
     logging.info(f"Preparing {len(image_url_list)} URLs for download...")
     image_tuples = await get_image_tuples(image_url_list)
     await download_and_zip_images(image_tuples)
