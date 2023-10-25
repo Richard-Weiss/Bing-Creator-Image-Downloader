@@ -85,11 +85,9 @@ def set_arsenic_log_level(level=logging.WARNING):
 async def main():
     start = time.time()
 
-    with open("images_clipboard.txt", "r") as f:
+    with open("images_clipboard.txt", "r", encoding='utf8') as f:
         content = f.read().splitlines()
-    lines = [line for line in content
-             if line != "www.bing.com" and line != ""]
-    image_url_list = [lines[i + 1] for i in range(0, len(lines), 2)]
+    image_url_list = [line for line in content if line.startswith("https://www.bing.com/images/create")]
     logging.info(f"Preparing {len(image_url_list)} URLs for download...")
     image_tuples = await get_image_tuples(image_url_list)
     await download_and_zip_images(image_tuples)
