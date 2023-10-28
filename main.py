@@ -1,19 +1,19 @@
-import logging
-import re
-import sys
-import unicodedata
-
-import aiofiles
 import asyncio
-from datetime import date
-import time
+import json
+import logging
 import os
 import platform
+import re
+import sys
+import time
+import unicodedata
 import zipfile
+from datetime import date
 
+import aiofiles
 import aiohttp
+import piexif as piexif
 import structlog
-
 from arsenic import get_session
 from arsenic.browsers import Firefox
 from arsenic.constants import SelectorType
@@ -63,16 +63,30 @@ async def download_and_save_image(session, src, alt, index):
     try:
         async with session.get(src) as response:
             if response.status == 200:
-                alt = await slugify(alt)
-                filename = f"{alt[:50]}_{str(index)}.jpg"
+                filename_alt = await slugify(alt)
+                filename = f"{filename_alt[:50]}_{str(index)}.jpg"
                 async with aiofiles.open(filename, "wb") as f:
                     await f.write(await response.read())
+                await add_exif_metadata(src, alt, filename)
                 logging.info(f"Downloading image from: {src}")
                 return filename
             else:
                 print(f"Failed to download {src}")
     except Exception as e:
         print(e)
+
+
+async def add_exif_metadata(src, alt, filename):
+    with open(filename, 'rb') as img:
+        exif_dict = piexif.load(img.read())
+        user_comment = {
+            'prompt': alt,
+            'image_link:': src
+        }
+        user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
+        exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
+        exif_bytes = piexif.dump(exif_dict)
+        piexif.insert(exif_bytes, filename)
 
 
 async def slugify(text):
@@ -84,9 +98,7 @@ async def slugify(text):
     """
     text = str(text)
     text = (
-        unicodedata.normalize("NFKD", text)
-        .encode("ascii", "ignore")
-        .decode("ascii")
+        unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     )
     text = re.sub(r"[^\w\s-]", "", text.lower())
     return re.sub(r"[-\s]+", "-", text).strip("-_")
