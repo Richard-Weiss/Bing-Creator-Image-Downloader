@@ -6,18 +6,15 @@ import platform
 import re
 import sys
 import time
-import unicodedata
 import zipfile
 from datetime import date
+from urllib.parse import urljoin
 
 import aiofiles
 import aiohttp
 import piexif as piexif
 import structlog
-from arsenic import get_session
-from arsenic.browsers import Firefox
-from arsenic.constants import SelectorType
-from arsenic.services import Geckodriver
+import unicodedata
 
 
 async def get_image_tuples(img_url_list: list) -> list:
@@ -32,24 +29,61 @@ async def get_image_tuples(img_url_list: list) -> list:
 
 async def get_image_from_url(url: str) -> tuple:
     """
-    Retrieves the image src and alt from the given url and returns it as a tuple.
-    :param url: URL to use to find the image.
+    Retrieves the image src and alt using the given url and returns it as a tuple.
+    :param url: URL used to build a new fetchURL.
     :return: Tuple containing the src and alt attribute of the image.
     """
-    service = Geckodriver(
-        binary='C:\\Users\\icepe\\Developer_Tools\\Gecko Driver\\geckodriver.exe',
-        log_file=os.devnull
-    )
-    options = Firefox(**{
-        "moz:firefoxOptions": {
-            "args": ["-headless"]
-        }
-    })
-    async with get_session(service, options) as session:
-        await session.get(url)
+    try:
         logging.info(f"Getting image for URL: {url}")
-        img = await session.wait_for_element(20, "//div[@class='imgContainer']/img", SelectorType.xpath)
-        return await img.get_attribute("src"), await img.get_attribute("alt")
+        async with aiohttp.ClientSession() as session:
+            image_fetch_url = await build_image_fetch_url(url)
+            async with session.get(image_fetch_url) as response:
+                if response.status == 200:
+                    response_body = await response.json()
+                    index = response_body['selectedIndex']
+                    image_data_array = response_body['value']
+                    image_data = image_data_array[index]
+                    src = image_data['contentUrl']
+                    alt = image_data['imageAltText']
+                    return src, alt
+                else:
+                    logging.warning(f"Failed to fetch image for URL: {url}")
+    except Exception as e:
+        logging.error(e)
+
+
+async def build_image_fetch_url(url: str) -> str:
+    """
+    Builds the url that is used to fetch the image src and alt attributes.
+    :param url: URL from text file. Used to extract the set and image id.
+    :return: The built url for requesting the image information.
+    """
+    set_and_image_id = await extract_set_and_image_id(url)
+    base_url = 'https://www.bing.com'
+    path = f"images/create/detail/async/{set_and_image_id['setId']}"
+    fetch_url = f"{urljoin(base_url, path)}?imageId={set_and_image_id['imageId']}"
+    return fetch_url
+
+
+async def extract_set_and_image_id(url: str) -> dict:
+    """
+    Extracts the set id and image id out of the url using regex and returns them as a dictionary.
+    :param url: The url from the original text file.
+    :return: A dictionary containing the setId and imageId.
+    """
+    pattern = r'([a-f0-9]{32}\?id=[^&]+)'
+    match = re.search(pattern, url)
+    if match:
+        set_and_image_id = match.group(1)
+        set_and_image_id = set_and_image_id.replace('id=', '')
+        set_and_image_id_list = set_and_image_id.split('?')
+        set_and_image_id_dict = {
+            'setId': set_and_image_id_list[0],
+            'imageId': set_and_image_id_list[1]
+        }
+        return set_and_image_id_dict
+    else:
+        raise ValueError(f"The set and image id couldn't be extracted for the url: {url}")
 
 
 async def download_and_zip_images(image_tuples: list) -> None:
@@ -98,9 +132,9 @@ async def download_and_save_image(
                 logging.info(f"Downloading image from: {src}")
                 return filename
             else:
-                print(f"Failed to download {src}")
+                logging.warning(f"Failed to download {src}")
     except Exception as e:
-        print(e)
+        logging.error(e)
 
 
 async def add_exif_metadata(src: str, alt: str, filename: str) -> None:
@@ -139,7 +173,7 @@ async def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-_")
 
 
-def set_arsenic_log_level(level: int=logging.WARNING) -> None:
+def set_arsenic_log_level(level: int = logging.WARNING) -> None:
     """
     Sets the log level of the arsenic module to "WARNING" to prevent it spamming the CLI.
     :param level: The logging level to set for the arsenic logger.
