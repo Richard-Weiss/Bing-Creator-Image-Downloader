@@ -20,12 +20,22 @@ from arsenic.constants import SelectorType
 from arsenic.services import Geckodriver
 
 
-async def get_image_tuples(img_url_list: list):
+async def get_image_tuples(img_url_list: list) -> list:
+    """
+    Asynchronous wrapper to gather all the results from the tasks once they are completed.
+    :param img_url_list: List of URLs to find images by.
+    :return: A list containing the src and alt attributes for each image.
+    """
     results = await asyncio.gather(*map(get_image_from_url, img_url_list))
     return list(results)
 
 
-async def get_image_from_url(url):
+async def get_image_from_url(url: str) -> tuple:
+    """
+    Retrieves the image src and alt from the given url and returns it as a tuple.
+    :param url: URL to use to find the image.
+    :return: Tuple containing the src and alt attribute of the image.
+    """
     service = Geckodriver(
         binary='C:\\Users\\icepe\\Developer_Tools\\Gecko Driver\\geckodriver.exe',
         log_file=os.devnull
@@ -42,7 +52,12 @@ async def get_image_from_url(url):
         return await img.get_attribute("src"), await img.get_attribute("alt")
 
 
-async def download_and_zip_images(image_tuples: list):
+async def download_and_zip_images(image_tuples: list) -> None:
+    """
+    Downloads all images supplied in the image_tuples list and zips them.
+    :param image_tuples: List of tuples containing the link and alt of the images.
+    :return: None
+    """
     zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
     async with aiohttp.ClientSession() as session:
         tasks = [
@@ -59,7 +74,19 @@ async def download_and_zip_images(image_tuples: list):
     zip_file.close()
 
 
-async def download_and_save_image(session, src, alt, index):
+async def download_and_save_image(
+        session: aiohttp.ClientSession,
+        src: str,
+        alt: str,
+        index: int) -> str:
+    """
+    Downloads an image using the src and the existing session.
+    :param session: The ClientSession to use for the request.
+    :param src: The url the image is located at.
+    :param alt: The alternative text of the image, in this case the prompt.
+    :param index: An index that gets added to the filename. Only used to prevent duplicate names.
+    :return: The filename of the downloaded file.
+    """
     try:
         async with session.get(src) as response:
             if response.status == 200:
@@ -76,7 +103,14 @@ async def download_and_save_image(session, src, alt, index):
         print(e)
 
 
-async def add_exif_metadata(src, alt, filename):
+async def add_exif_metadata(src: str, alt: str, filename: str) -> None:
+    """
+    Adds the src and alt parameter to the image as EXIF metadata.
+    :param src: The link the image was fetched from.
+    :param alt: The description of the image, in this case its prompt.
+    :param filename: The name of the file containing the image.
+    :return: None
+    """
     with open(filename, 'rb') as img:
         exif_dict = piexif.load(img.read())
         user_comment = {
@@ -89,14 +123,15 @@ async def add_exif_metadata(src, alt, filename):
         piexif.insert(exif_bytes, filename)
 
 
-async def slugify(text):
+async def slugify(text: str) -> str:
     """
     Convert spaces or repeated dashes to single dashes. Remove characters that aren't alphanumerics,
     underscores, or hyphens. Convert to lowercase. Also strip leading and
     trailing whitespace, dashes, and underscores.
     Source: https://github.com/django/django/blob/main/django/utils/text.py
+    :param text: The text that should be normalized.
+    :return: The normalized text.
     """
-    text = str(text)
     text = (
         unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     )
@@ -104,7 +139,12 @@ async def slugify(text):
     return re.sub(r"[-\s]+", "-", text).strip("-_")
 
 
-def set_arsenic_log_level(level=logging.WARNING):
+def set_arsenic_log_level(level: int=logging.WARNING) -> None:
+    """
+    Sets the log level of the arsenic module to "WARNING" to prevent it spamming the CLI.
+    :param level: The logging level to set for the arsenic logger.
+    :return: None
+    """
     logger = logging.getLogger('arsenic')
 
     def logger_factory():
@@ -114,12 +154,17 @@ def set_arsenic_log_level(level=logging.WARNING):
     logger.setLevel(level)
 
 
-async def main():
+async def main() -> None:
+    """
+    Entry point for the program. Calls all high level functionality.
+    :return: None
+    """
     start = time.time()
 
     with open("images_clipboard.txt", "r", encoding='utf8') as f:
         content = f.read().splitlines()
     image_url_list = [line for line in content if line.startswith("https://www.bing.com/images/create")]
+
     logging.info(f"Preparing {len(image_url_list)} URLs for download...")
     image_tuples = await get_image_tuples(image_url_list)
     await download_and_zip_images(image_tuples)
