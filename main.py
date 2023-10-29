@@ -10,6 +10,7 @@ from datetime import date
 from urllib.parse import urljoin
 
 import aiofiles
+import aiofiles.tempfile
 import aiohttp
 import asyncio_pool
 import piexif as piexif
@@ -98,33 +99,33 @@ async def download_and_zip_images(image_tuples: list) -> None:
     :param image_tuples: List of tuples containing the link and alt of the images.
     :return: None
     """
-    zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            download_and_save_image(session, src, alt, index)
-            for index, (src, alt)
-            in enumerate(image_tuples)
-        ]
-        file_names = await asyncio.gather(*tasks)
-        for file_name in file_names:
-            if file_name is not None:
-                file_name: str
-                zip_file.write(file_name)
-                os.remove(file_name)
-    zip_file.close()
+    with zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w") as zip_file:
+        async with aiofiles.tempfile.TemporaryDirectory('wb') as temp_dir:
+            async with aiohttp.ClientSession() as session:
+                tasks = [
+                    download_and_save_image(session, src, alt, index, temp_dir)
+                    for index, (src, alt)
+                    in enumerate(image_tuples)
+                ]
+                file_names = await asyncio.gather(*tasks)
+                for file_name in file_names:
+                    file_name: str
+                    zip_file.write(file_name, arcname=os.path.basename(file_name))
 
 
 async def download_and_save_image(
         session: aiohttp.ClientSession,
         src: str,
         alt: str,
-        index: int) -> str:
+        index: int,
+        temp_dir: aiofiles.tempfile.TemporaryDirectory) -> str:
     """
     Downloads an image using the src and the existing session.
     :param session: The ClientSession to use for the request.
     :param src: The url the image is located at.
     :param alt: The alternative text of the image, in this case the prompt.
     :param index: An index that gets added to the filename. Only used to prevent duplicate names.
+    :param temp_dir: The directory to save files to before zipping.
     :return: The filename of the downloaded file.
     """
     try:
@@ -134,7 +135,7 @@ async def download_and_save_image(
         async with retry_client.get(src) as response:
             if response.status == 200:
                 filename_alt = await slugify(alt)
-                filename = f"{filename_alt[:50]}_{str(index)}.jpg"
+                filename = f"{temp_dir}{os.sep}{filename_alt[:50]}_{str(index)}.jpg"
                 async with aiofiles.open(filename, "wb") as f:
                     await f.write(await response.read())
                 await add_exif_metadata(src, alt, filename)
