@@ -14,7 +14,8 @@ import aiohttp
 import asyncio_pool
 import piexif as piexif
 import unicodedata
-from aiolimiter import AsyncLimiter
+from aiohttp_retry import ExponentialRetry
+from aiohttp_retry import RetryClient
 
 
 async def get_image_tuples(img_url_list: list) -> list:
@@ -36,24 +37,25 @@ async def get_image_from_url(url: str) -> tuple:
     """
     try:
         logging.info(f"Getting image for URL: {url}")
-        limiter = AsyncLimiter(5000, 1)
-        async with limiter:
-            async with aiohttp.ClientSession() as session:
-                image_fetch_url = await build_image_fetch_url(url)
-                async with session.get(image_fetch_url) as response:
-                    if response.status == 200:
-                        response_body = await response.json()
-                        index = response_body['selectedIndex']
-                        image_data_array = response_body['value']
-                        image_data = image_data_array[index]
-                        src = image_data['contentUrl']
-                        alt = image_data['imageAltText']
-                        return src, alt
-                    else:
-                        logging.warning(f"Failed to fetch image for URL: {url} "
-                                        f"for Reason: {response.status}: {response.reason}")
+        async with aiohttp.ClientSession() as session:
+            statuses = {x for x in range(100, 600) if x != 200}
+            retry_options = ExponentialRetry(attempts=5, statuses=statuses)
+            retry_client = RetryClient(client_session=session, retry_options=retry_options)
+            image_fetch_url = await build_image_fetch_url(url)
+            async with retry_client.get(image_fetch_url) as response:
+                if response.status == 200:
+                    response_body = await response.json()
+                    index = response_body['selectedIndex']
+                    image_data_array = response_body['value']
+                    image_data = image_data_array[index]
+                    src = image_data['contentUrl']
+                    alt = image_data['imageAltText']
+                    return src, alt
+                else:
+                    logging.warning(f"Failed to fetch image for URL: {url} "
+                                    f"for Reason: {response.status}: {response.reason}")
     except Exception as e:
-        logging.error(e)
+        logging.exception(e)
 
 
 async def build_image_fetch_url(url: str) -> str:
@@ -97,20 +99,18 @@ async def download_and_zip_images(image_tuples: list) -> None:
     :return: None
     """
     zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
-    limiter = AsyncLimiter(5000, 1)
-    async with limiter:
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                download_and_save_image(session, src, alt, index)
-                for index, (src, alt)
-                in enumerate(image_tuples)
-            ]
-            file_names = await asyncio.gather(*tasks)
-            for file_name in file_names:
-                if file_name is not None:
-                    file_name: str
-                    zip_file.write(file_name)
-                    os.remove(file_name)
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            download_and_save_image(session, src, alt, index)
+            for index, (src, alt)
+            in enumerate(image_tuples)
+        ]
+        file_names = await asyncio.gather(*tasks)
+        for file_name in file_names:
+            if file_name is not None:
+                file_name: str
+                zip_file.write(file_name)
+                os.remove(file_name)
     zip_file.close()
 
 
@@ -128,7 +128,10 @@ async def download_and_save_image(
     :return: The filename of the downloaded file.
     """
     try:
-        async with session.get(src) as response:
+        statuses = {x for x in range(100, 600) if x != 200}
+        retry_options = ExponentialRetry(attempts=5, statuses=statuses)
+        retry_client = RetryClient(client_session=session, retry_options=retry_options)
+        async with retry_client.get(src) as response:
             if response.status == 200:
                 filename_alt = await slugify(alt)
                 filename = f"{filename_alt[:50]}_{str(index)}.jpg"
@@ -140,7 +143,7 @@ async def download_and_save_image(
             else:
                 logging.warning(f"Failed to download {src} for Reason: {response.status}: {response.reason}")
     except Exception as e:
-        logging.error(e)
+        logging.exception(e)
 
 
 async def add_exif_metadata(src: str, alt: str, filename: str) -> None:
