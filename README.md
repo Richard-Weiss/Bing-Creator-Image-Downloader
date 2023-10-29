@@ -2,7 +2,7 @@
 Downloads all Bing Creator images from a collection
 
 ### Prerequisites
-* [Python 3](https://www.python.org/downloads/)
+* [Python 3.10+](https://www.python.org/downloads/)
 
 ### How to use
 * Clone the repository or download and unzip
@@ -16,3 +16,8 @@ Downloads all Bing Creator images from a collection
 * Run `pip install -r .\requirements.txt` to install all dependencies (You may need to add the `PythonXX\Scripts` folder to your PATH first)
 * Run `python .\main.py` afterward to run the script 
 * The images of the collection are saved in the `bing_images_$TodaysDate.zip` file
+
+### Addendum
+It should take about 30 seconds to download 1500 images from my testing.  
+Each image contains the original prompt and image link as EXIF Metadata in the `UserComment` field in a JSON format.  
+If you encounter any errors or warnings in your log, please open a new issue.

@@ -1,4 +1,4 @@
 aiofiles~=23.2.1
-aiohttp~=3.8.4
+aiohttp~=3.8.6
+aiolimiter~=1.1.0
 piexif~=1.1.3
-structlog~=20.2.0

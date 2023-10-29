@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import platform
 import re
 import sys
 import time
@@ -13,8 +12,8 @@ from urllib.parse import urljoin
 import aiofiles
 import aiohttp
 import piexif as piexif
-import structlog
 import unicodedata
+from aiolimiter import AsyncLimiter
 
 
 async def get_image_tuples(img_url_list: list) -> list:
@@ -35,19 +34,22 @@ async def get_image_from_url(url: str) -> tuple:
     """
     try:
         logging.info(f"Getting image for URL: {url}")
-        async with aiohttp.ClientSession() as session:
-            image_fetch_url = await build_image_fetch_url(url)
-            async with session.get(image_fetch_url) as response:
-                if response.status == 200:
-                    response_body = await response.json()
-                    index = response_body['selectedIndex']
-                    image_data_array = response_body['value']
-                    image_data = image_data_array[index]
-                    src = image_data['contentUrl']
-                    alt = image_data['imageAltText']
-                    return src, alt
-                else:
-                    logging.warning(f"Failed to fetch image for URL: {url}")
+        limiter = AsyncLimiter(5000, 1)
+        async with limiter:
+            async with aiohttp.ClientSession() as session:
+                image_fetch_url = await build_image_fetch_url(url)
+                async with session.get(image_fetch_url) as response:
+                    if response.status == 200:
+                        response_body = await response.json()
+                        index = response_body['selectedIndex']
+                        image_data_array = response_body['value']
+                        image_data = image_data_array[index]
+                        src = image_data['contentUrl']
+                        alt = image_data['imageAltText']
+                        return src, alt
+                    else:
+                        logging.warning(f"Failed to fetch image for URL: {url} "
+                                        f"for Reason: {response.status}: {response.reason}")
     except Exception as e:
         logging.error(e)
 
@@ -93,18 +95,20 @@ async def download_and_zip_images(image_tuples: list) -> None:
     :return: None
     """
     zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            download_and_save_image(session, src, alt, index)
-            for index, (src, alt)
-            in enumerate(image_tuples)
-        ]
-        file_names = await asyncio.gather(*tasks)
-        for file_name in file_names:
-            if file_name is not None:
-                file_name: str
-                zip_file.write(file_name)
-                os.remove(file_name)
+    limiter = AsyncLimiter(5000, 1)
+    async with limiter:
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                download_and_save_image(session, src, alt, index)
+                for index, (src, alt)
+                in enumerate(image_tuples)
+            ]
+            file_names = await asyncio.gather(*tasks)
+            for file_name in file_names:
+                if file_name is not None:
+                    file_name: str
+                    zip_file.write(file_name)
+                    os.remove(file_name)
     zip_file.close()
 
 
@@ -132,7 +136,7 @@ async def download_and_save_image(
                 logging.info(f"Downloading image from: {src}")
                 return filename
             else:
-                logging.warning(f"Failed to download {src}")
+                logging.warning(f"Failed to download {src} for Reason: {response.status}: {response.reason}")
     except Exception as e:
         logging.error(e)
 
@@ -173,21 +177,6 @@ async def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-_")
 
 
-def set_arsenic_log_level(level: int = logging.WARNING) -> None:
-    """
-    Sets the log level of the arsenic module to "WARNING" to prevent it spamming the CLI.
-    :param level: The logging level to set for the arsenic logger.
-    :return: None
-    """
-    logger = logging.getLogger('arsenic')
-
-    def logger_factory():
-        return logger
-
-    structlog.configure(logger_factory=logger_factory)
-    logger.setLevel(level)
-
-
 async def main() -> None:
     """
     Entry point for the program. Calls all high level functionality.
@@ -209,8 +198,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    if platform.system() == "Windows":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    set_arsenic_log_level()
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO, stream=sys.stdout)
     asyncio.run(main())
