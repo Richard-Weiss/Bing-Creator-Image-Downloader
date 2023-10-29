@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 
 import aiofiles
 import aiohttp
+import asyncio_pool
 import piexif as piexif
 import unicodedata
 from aiolimiter import AsyncLimiter
@@ -22,7 +23,8 @@ async def get_image_tuples(img_url_list: list) -> list:
     :param img_url_list: List of URLs to find images by.
     :return: A list containing the src and alt attributes for each image.
     """
-    results = await asyncio.gather(*map(get_image_from_url, img_url_list))
+    pool = asyncio_pool.AioPool(size=32)
+    results = await pool.map(get_image_from_url, img_url_list)
     return list(results)
 
 

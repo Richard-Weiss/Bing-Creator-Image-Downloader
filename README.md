@@ -18,6 +18,6 @@ Downloads all Bing Creator images from a collection
 * The images of the collection are saved in the `bing_images_$TodaysDate.zip` file
 
 ### Addendum
-It should take about 30 seconds to download 1500 images from my testing.  
+It should take about ~30-60 seconds to download 1500 images from my testing.  
 Each image contains the original prompt and image link as EXIF Metadata in the `UserComment` field in a JSON format.  
 If you encounter any errors or warnings in your log, please open a new issue.
