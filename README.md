@@ -6,11 +6,10 @@ Downloads all Bing Creator images from a collection
 
 ### How to use
 * Clone the repository or download and unzip
-* Go to https://www.bing.com/saves?&FORM=SAVBIC&collId=3
-* Select a single image from the collection
-* Click `select all` in the ribbon that appears
-* Click `Copy items to clipboard`
-* Paste the content to the `images_clipboard.txt` file
+* Get your `_U` cookie for Bing. For example like described in this [comment](https://old.reddit.com/r/bing/comments/172rpo6/is_there_any_way_to_download_image_collections/k72vjqs/)
+* Paste the value after the equals sign for the `_U` property in the `COOKIE` property in the `.env.example` file.
+* Add your own collections to the `COLLECTIONS_TO_INCLUDE` property or leave the property completely empty to download for all collections
+* Rename the file to .env
 * Navigate to the folder of the repository
 * Open a terminal e.g. PowerShell
 * Run `pip install -r .\requirements.txt` to install all dependencies (You may need to add the `PythonXX\Scripts` folder to your PATH first)
@@ -20,4 +19,5 @@ Downloads all Bing Creator images from a collection
 ### Addendum
 It should take about ~30-90 seconds to download 1500 images from my testing.  
 Each image contains the original prompt and image link as EXIF Metadata in the `UserComment` field in a JSON format.  
+The `Default` value in the `COLLECTIONS_TO_INCLUDE` property is the `Saved images` collection, however because the title is translated for the user this workaround has to be used.   
 If you encounter any errors or warnings in your log, please open a new issue.
