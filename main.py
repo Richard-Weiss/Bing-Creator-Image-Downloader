@@ -32,7 +32,7 @@ def get_image_tuples() -> list:
         "sid": "0"
     }
     body = {
-        "collectionItemType": "all",
+        "collectionItemType": "Generic",
         "maxItemsToFetch": 10000,
         "shouldFetchMetadata": True
     }
@@ -51,28 +51,47 @@ def get_image_tuples() -> list:
             raise Exception('No collections were found for the given cookie.')
         image_tuples = []
         for collection in collection_dict['collections']:
-            if should_add_to_tuple_list(collection):
+            if should_add_collection_to_tuple_list(collection):
                 for item in collection['collectionPage']['items']:
-                    custom_data = json.loads(item['content']['customData'])
-                    image_link = custom_data['MediaUrl']
-                    image_prompt = custom_data['ToolTip']
-                    pattern = r'Image \d of \d$'
-                    image_prompt = re.sub(pattern, '', image_prompt)
-                    image_tuple = (image_link, image_prompt)
-                    image_tuples.append(image_tuple)
+                    if should_add_item_to_tuple_list(item):
+                        custom_data = json.loads(item['content']['customData'])
+                        image_link = custom_data['MediaUrl']
+                        image_prompt = custom_data['ToolTip']
+                        pattern = r'Image \d of \d$'
+                        image_prompt = re.sub(pattern, '', image_prompt)
+                        image_tuple = (image_link, image_prompt)
+                        image_tuples.append(image_tuple)
         return image_tuples
     else:
         raise Exception(f"Fetching collection failed with Error code"
                         f"{response.status_code}: {response.reason};{response.text}")
 
 
-def should_add_to_tuple_list(_collection: dict) -> bool:
+def should_add_collection_to_tuple_list(_collection: dict) -> bool:
+    """
+    Checks if a collection should be considered for download by checking the included collections.
+    :param _collection: Collection to determine for download.
+    :return: Whether the collection should be added or not.
+    """
     collections_to_include = [_collection.strip() for _collection in os.getenv('COLLECTIONS_TO_INCLUDE').split(',')]
     if len(collections_to_include[0]) == 0:
         return True
     else:
         return (('knownCollectionType' in _collection and 'Default' in collections_to_include)
                 or _collection['title'] in collections_to_include)
+
+
+def should_add_item_to_tuple_list(_item: dict) -> bool:
+    """
+    Checks for the necessary keys in the item and returns whether they are present.
+    :param _item: Item to consider for download.
+    :return: Whether the item dictionary is valid for download.
+    """
+    valid_item_root = 'content' in _item and 'customData' in _item['content']
+    custom_data = _item['content']['customData']
+    valid_custom_data = 'MediaUrl' in custom_data and 'ToolTip' in custom_data
+
+    return valid_item_root and valid_custom_data
 
 
 async def download_and_zip_images(image_tuples: list) -> None:
