@@ -21,10 +21,10 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
 
-def get_image_tuples() -> list:
+def gather_image_data() -> list:
     """
     Gathers all image links and prompts from all collections.
-    :return: A list containing the image url and description/prompt for each image.
+    :return: A list containing dictionaries containing the image url, description/prompt and collection for each image.
     """
     header = {
         "Content-Type": "application/json",
@@ -32,7 +32,7 @@ def get_image_tuples() -> list:
         "sid": "0"
     }
     body = {
-        "collectionItemType": "Generic",
+        "collectionItemType": "all",
         "maxItemsToFetch": 10000,
         "shouldFetchMetadata": True
     }
@@ -49,118 +49,126 @@ def get_image_tuples() -> list:
         collection_dict = response.json()
         if len(collection_dict) == 0:
             raise Exception('No collections were found for the given cookie.')
-        image_tuples = []
+        gathered_image_data = []
         for collection in collection_dict['collections']:
-            if should_add_collection_to_tuple_list(collection):
+            if should_add_collection_to_images(collection):
                 for item in collection['collectionPage']['items']:
-                    if should_add_item_to_tuple_list(item):
+                    if should_add_item_to_images(item):
                         custom_data = json.loads(item['content']['customData'])
                         image_link = custom_data['MediaUrl']
                         image_prompt = custom_data['ToolTip']
+                        collection_name = collection['title']
                         pattern = r'Image \d of \d$'
                         image_prompt = re.sub(pattern, '', image_prompt)
-                        image_tuple = (image_link, image_prompt)
-                        image_tuples.append(image_tuple)
-        return image_tuples
+                        image_dict = {
+                            'image_link': image_link,
+                            'image_prompt': image_prompt,
+                            'collection_name': collection_name
+                        }
+                        gathered_image_data.append(image_dict)
+        return gathered_image_data
     else:
         raise Exception(f"Fetching collection failed with Error code"
                         f"{response.status_code}: {response.reason};{response.text}")
 
 
-def should_add_collection_to_tuple_list(_collection: dict) -> bool:
+def should_add_collection_to_images(_collection: dict) -> bool:
     """
-    Checks if a collection should be considered for download by checking the included collections.
+    Checks if a collection should be considered for download by checking the included collections and necessary keys.
     :param _collection: Collection to determine for download.
     :return: Whether the collection should be added or not.
     """
-    collections_to_include = [_collection.strip() for _collection in os.getenv('COLLECTIONS_TO_INCLUDE').split(',')]
-    if len(collections_to_include[0]) == 0:
-        return True
+    if 'collectionPage' in _collection and 'items' in _collection['collectionPage']:
+        collections_to_include = [_collection.strip() for _collection in os.getenv('COLLECTIONS_TO_INCLUDE').split(',')]
+        if len(collections_to_include[0]) == 0:
+            return True
+        else:
+            return (('knownCollectionType' in _collection and 'Default' in collections_to_include)
+                    or _collection['title'] in collections_to_include)
     else:
-        return (('knownCollectionType' in _collection and 'Default' in collections_to_include)
-                or _collection['title'] in collections_to_include)
+        return False
 
 
-def should_add_item_to_tuple_list(_item: dict) -> bool:
+def should_add_item_to_images(_item: dict) -> bool:
     """
     Checks for the necessary keys in the item and returns whether they are present.
     :param _item: Item to consider for download.
     :return: Whether the item dictionary is valid for download.
     """
     valid_item_root = 'content' in _item and 'customData' in _item['content']
-    custom_data = _item['content']['customData']
-    valid_custom_data = 'MediaUrl' in custom_data and 'ToolTip' in custom_data
+    if valid_item_root:
+        custom_data = _item['content']['customData']
+        valid_custom_data = 'MediaUrl' in custom_data and 'ToolTip' in custom_data
+        return valid_custom_data
+    else:
+        return False
 
-    return valid_item_root and valid_custom_data
 
-
-async def download_and_zip_images(image_tuples: list) -> None:
+async def download_and_zip_images(image_data: list) -> None:
     """
     Downloads all images supplied in the image_tuples list and zips them.
-    :param image_tuples: List of tuples containing the link and alt of the images.
+    :param image_data: List of dictionary containing the link, description and collection of the images.
     :return: None
     """
     with zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w") as zip_file:
         async with aiofiles.tempfile.TemporaryDirectory('wb') as temp_dir:
             async with aiohttp.ClientSession() as session:
                 tasks = [
-                    download_and_save_image(session, src, alt, index, temp_dir)
-                    for index, (src, alt)
-                    in enumerate(image_tuples)
+                    download_and_save_image(session, image_dict, index, temp_dir)
+                    for index, image_dict
+                    in enumerate(image_data)
                 ]
                 file_names = await asyncio.gather(*tasks)
-                for file_name in file_names:
+                for file_name, collection_name in file_names:
                     file_name: str
-                    zip_file.write(file_name, arcname=os.path.basename(file_name))
+                    zip_file.write(file_name, arcname=os.path.join(collection_name, os.path.basename(file_name)))
 
 
 async def download_and_save_image(
         session: aiohttp.ClientSession,
-        image_link: str,
-        image_prompt: str,
+        image_dict: dict,
         index: int,
-        temp_dir: aiofiles.tempfile.TemporaryDirectory) -> str:
+        temp_dir: aiofiles.tempfile.TemporaryDirectory) -> tuple:
     """
     Downloads an image using the src and the existing session.
     :param session: The ClientSession to use for the request.
-    :param image_link: The url the image is located at.
-    :param image_prompt: The prompt that was used to generate the image.
+    :param image_dict: Dictionary containing link, prompt and collection of image.
     :param index: An index that gets added to the filename. Only used to prevent duplicate names.
     :param temp_dir: The directory to save files to before zipping.
-    :return: The filename of the downloaded file.
+    :return: The filename and collection name of the downloaded file.
     """
     try:
         statuses = {x for x in range(100, 600) if x != 200}
         retry_options = ExponentialRetry(attempts=5, statuses=statuses)
         retry_client = RetryClient(client_session=session, retry_options=retry_options)
-        async with retry_client.get(image_link) as response:
+        async with retry_client.get(image_dict['image_link']) as response:
             if response.status == 200:
-                filename_image_prompt = await slugify(image_prompt)
+                filename_image_prompt = await slugify(image_dict['image_prompt'])
                 filename = f"{temp_dir}{os.sep}{filename_image_prompt[:50]}_{str(index)}.jpg"
                 async with aiofiles.open(filename, "wb") as f:
                     await f.write(await response.read())
-                await add_exif_metadata(image_link, image_prompt, filename)
-                logging.info(f"Downloading image from: {image_link}")
-                return filename
+                await add_exif_metadata(image_dict, filename)
+                logging.info(f"Downloading image from: {image_dict['image_link']}")
+                return filename, image_dict['collection_name']
             else:
-                logging.warning(f"Failed to download {image_link} for Reason: {response.status}: {response.reason}")
+                logging.warning(f"Failed to download {image_dict['image_link']} "
+                                f"for Reason: {response.status}: {response.reason}")
     except Exception as e:
         logging.exception(e)
 
 
-async def add_exif_metadata(src: str, alt: str, filename: str) -> None:
+async def add_exif_metadata(image_dict: dict, filename: str) -> None:
     """
     Adds the src and alt parameter to the image as EXIF metadata.
-    :param src: The link the image was fetched from.
-    :param alt: The description of the image, in this case its prompt.
+    :param image_dict: Dictionary containing link and prompt of the image.
     :param filename: The name of the file containing the image.
     :return: None
     """
     with open(filename, 'rb') as img:
         exif_dict = piexif.load(img.read())
         user_comment = {
-            'prompt': alt,
-            'image_link:': src
+            'prompt': image_dict['image_link'],
+            'image_link': image_dict['image_prompt']
         }
         user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
         exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
@@ -192,13 +200,13 @@ async def main() -> None:
     start = time.time()
 
     logging.info(f"Fetching metadata of collections...")
-    image_tuples = get_image_tuples()
-    logging.info(f"Starting download of {len(image_tuples)} images.")
-    await download_and_zip_images(image_tuples)
+    image_data = gather_image_data()
+    logging.info(f"Starting download of {len(image_data)} images.")
+    await download_and_zip_images(image_data)
 
     end = time.time()
     elapsed = end - start
-    logging.info(f"Finished downloading {len(image_tuples)} images in {round(elapsed, 2)} seconds.")
+    logging.info(f"Finished downloading {len(image_data)} images in {round(elapsed, 2)} seconds.")
 
 
 if __name__ == "__main__":
