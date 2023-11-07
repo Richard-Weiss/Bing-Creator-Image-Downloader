@@ -167,8 +167,8 @@ async def add_exif_metadata(image_dict: dict, filename: str) -> None:
     with open(filename, 'rb') as img:
         exif_dict = piexif.load(img.read())
         user_comment = {
-            'prompt': image_dict['image_link'],
-            'image_link': image_dict['image_prompt']
+            'prompt': image_dict['image_prompt'],
+            'image_link': image_dict['image_link']
         }
         user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
         exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
