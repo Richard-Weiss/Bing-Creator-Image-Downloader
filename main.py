@@ -58,14 +58,15 @@ def gather_image_data() -> list:
                         image_link = custom_data['MediaUrl']
                         image_prompt = custom_data['ToolTip']
                         collection_name = collection['title']
-                        thumbnail_link = item['content']['thumbnails'][0]['thumbnailUrl'][0:63]
+                        thumbnail_raw = item['content']['thumbnails'][0]['thumbnailUrl']
+                        thumbnail_link = re.match('^[^&]+', thumbnail_raw).group(0)
                         pattern = r'Image \d of \d$'
                         image_prompt = re.sub(pattern, '', image_prompt)
                         image_dict = {
                             'image_link': image_link,
                             'image_prompt': image_prompt,
                             'collection_name': collection_name,
-                            'thumbnail_link' : thumbnail_link,
+                            'thumbnail_link': thumbnail_link,
                         }
                         gathered_image_data.append(image_dict)
         return gathered_image_data
@@ -121,6 +122,7 @@ async def download_and_zip_images(image_data: list) -> None:
                     in enumerate(image_data)
                 ]
                 file_names = await asyncio.gather(*tasks)
+                file_names = [file_name for file_name in file_names if not None]
                 for file_name, collection_name in file_names:
                     file_name: str
                     zip_file.write(file_name, arcname=os.path.join(collection_name, os.path.basename(file_name)))
@@ -134,7 +136,7 @@ async def download_and_save_image(
     """
     Downloads an image using the src and the existing session.
     :param session: The ClientSession to use for the request.
-    :param image_dict: Dictionary containing link, prompt and collection of image.
+    :param image_dict: Dictionary containing link, prompt collection name and thumbnail link of an image.
     :param index: An index that gets added to the filename. Only used to prevent duplicate names.
     :param temp_dir: The directory to save files to before zipping.
     :return: The filename and collection name of the downloaded file.
@@ -153,19 +155,21 @@ async def download_and_save_image(
                 logging.info(f"Downloading image from: {image_dict['image_link']}")
                 return filename, image_dict['collection_name']
             else:
-                async with retry_client.get(image_dict['thumbnail_link']) as response:
-                    if response.status == 200:
+                logging.warning(f"Failed to download {image_dict['image_link']} "
+                                f"for Reason: {response.status}: {response.reason}-> "
+                                f"Retrying with thumbnail {image_dict['thumbnail_link']}")
+                async with retry_client.get(image_dict['thumbnail_link']) as thumbnail_response:
+                    if thumbnail_response.status == 200:
                         filename_image_prompt = await slugify(image_dict['image_prompt'])
                         filename = f"{temp_dir}{os.sep}T_{filename_image_prompt[:50]}_{str(index)}.jpg"
                         async with aiofiles.open(filename, "wb") as f:
-                            await f.write(await response.read())
+                            await f.write(await thumbnail_response.read())
                         await add_exif_metadata(image_dict, filename)
-                        logging.info(f"Failed to download {image_dict['image_link']}. "
-                                     f"Retrying with thumbnail...")
+
                         return filename, image_dict['collection_name']
                     else:
                         logging.warning(f"Failed to download {image_dict['thumbnail_link']} "
-                                        f"for Reason: {response.status}: {response.reason}")
+                                        f"for Reason: {thumbnail_response.status}: {thumbnail_response.reason}")
     except Exception as e:
         logging.exception(e)
 
@@ -173,7 +177,7 @@ async def download_and_save_image(
 async def add_exif_metadata(image_dict: dict, filename: str) -> None:
     """
     Adds the src and alt parameter to the image as EXIF metadata.
-    :param image_dict: Dictionary containing link and prompt of the image.
+    :param image_dict: Dictionary containing prompt, image link and thumbnail link of the image.
     :param filename: The name of the file containing the image.
     :return: None
     """
