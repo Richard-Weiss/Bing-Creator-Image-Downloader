@@ -58,12 +58,14 @@ def gather_image_data() -> list:
                         image_link = custom_data['MediaUrl']
                         image_prompt = custom_data['ToolTip']
                         collection_name = collection['title']
+                        thumbnail_link = item['content']['thumbnails'][0]['thumbnailUrl'][0:63]
                         pattern = r'Image \d of \d$'
                         image_prompt = re.sub(pattern, '', image_prompt)
                         image_dict = {
                             'image_link': image_link,
                             'image_prompt': image_prompt,
-                            'collection_name': collection_name
+                            'collection_name': collection_name,
+                            'thumbnail_link' : thumbnail_link,
                         }
                         gathered_image_data.append(image_dict)
         return gathered_image_data
@@ -151,8 +153,19 @@ async def download_and_save_image(
                 logging.info(f"Downloading image from: {image_dict['image_link']}")
                 return filename, image_dict['collection_name']
             else:
-                logging.warning(f"Failed to download {image_dict['image_link']} "
-                                f"for Reason: {response.status}: {response.reason}")
+                async with retry_client.get(image_dict['thumbnail_link']) as response:
+                    if response.status == 200:
+                        filename_image_prompt = await slugify(image_dict['image_prompt'])
+                        filename = f"{temp_dir}{os.sep}T_{filename_image_prompt[:50]}_{str(index)}.jpg"
+                        async with aiofiles.open(filename, "wb") as f:
+                            await f.write(await response.read())
+                        await add_exif_metadata(image_dict, filename)
+                        logging.info(f"Failed to download {image_dict['image_link']}. "
+                                     f"Retrying with thumbnail...")
+                        return filename, image_dict['collection_name']
+                    else:
+                        logging.warning(f"Failed to download {image_dict['thumbnail_link']} "
+                                        f"for Reason: {response.status}: {response.reason}")
     except Exception as e:
         logging.exception(e)
 
@@ -168,7 +181,8 @@ async def add_exif_metadata(image_dict: dict, filename: str) -> None:
         exif_dict = piexif.load(img.read())
         user_comment = {
             'prompt': image_dict['image_prompt'],
-            'image_link': image_dict['image_link']
+            'image_link': image_dict['image_link'],
+            'thumbnail_link': image_dict['thumbnail_link'],
         }
         user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
         exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
