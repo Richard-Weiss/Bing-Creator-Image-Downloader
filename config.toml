@@ -1,0 +1,16 @@
+[filename]
+# You can define your own custom pattern to be used for naming the image files.
+# Available parameters are:
+# date: The time the image was created using the Bing Image Creator. The date uses ISO-8601 formatting.
+# index: The order the image was placed in the collection. Right pads 4 zeroes. e.g. 0001 or 0012.
+# prompt: The prompt that was used to create the image.
+# sep: A seperator that may be used between parameters.
+#
+# The default file name would look like this: "2023-11-11T1512Z_0133_a-cute-cat".
+filename_pattern = "$date$sep$index$sep$prompt"
+
+[collection]
+# You can define if you want to only download specific collections or from all collections.
+# Leave the array empty to download all entries.
+# Also use "Saved Images" for the default collection and not your localization.
+collections_to_include = []

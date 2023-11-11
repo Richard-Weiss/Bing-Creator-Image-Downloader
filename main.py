@@ -1,12 +1,17 @@
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
+import string
 import sys
 import time
+import tomllib
 import zipfile
 from datetime import date
+from datetime import timezone
+from urllib.parse import unquote
 
 import aiofiles
 import aiofiles.tempfile
@@ -16,15 +21,19 @@ import requests
 import unicodedata
 from aiohttp_retry import ExponentialRetry
 from aiohttp_retry import RetryClient
+from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
+with open('config.toml', 'rb') as cfg_file:
+    config = tomllib.load(cfg_file)
+
 
 def gather_image_data() -> list:
     """
-    Gathers all image links and prompts from all collections.
-    :return: A list containing dictionaries containing the image url, description/prompt and collection for each image.
+    Gathers all necessary data for each image from all collections.
+    :return: A list containing dictionaries containing the interesting data for each image.
     """
     header = {
         "Content-Type": "application/json",
@@ -52,9 +61,10 @@ def gather_image_data() -> list:
         gathered_image_data = []
         for collection in collection_dict['collections']:
             if should_add_collection_to_images(collection):
-                for item in collection['collectionPage']['items']:
+                for index, item in enumerate(collection['collectionPage']['items']):
                     if should_add_item_to_images(item):
                         custom_data = json.loads(item['content']['customData'])
+                        image_page_url = custom_data['PageUrl']
                         image_link = custom_data['MediaUrl']
                         image_prompt = custom_data['ToolTip']
                         collection_name = collection['title']
@@ -67,6 +77,8 @@ def gather_image_data() -> list:
                             'image_prompt': image_prompt,
                             'collection_name': collection_name,
                             'thumbnail_link': thumbnail_link,
+                            'image_page_url': image_page_url,
+                            'index': str((index + 1)).zfill(4)
                         }
                         gathered_image_data.append(image_dict)
         return gathered_image_data
@@ -82,11 +94,11 @@ def should_add_collection_to_images(_collection: dict) -> bool:
     :return: Whether the collection should be added or not.
     """
     if 'collectionPage' in _collection and 'items' in _collection['collectionPage']:
-        collections_to_include = [_collection.strip() for _collection in os.getenv('COLLECTIONS_TO_INCLUDE').split(',')]
-        if len(collections_to_include[0]) == 0:
+        collections_to_include = config['collection']['collections_to_include']
+        if len(collections_to_include) == 0:
             return True
         else:
-            return (('knownCollectionType' in _collection and 'Default' in collections_to_include)
+            return (('knownCollectionType' in _collection and 'Saved Images' in collections_to_include)
                     or _collection['title'] in collections_to_include)
     else:
         return False
@@ -146,13 +158,24 @@ async def download_and_save_image(
         retry_options = ExponentialRetry(attempts=5, statuses=statuses)
         retry_client = RetryClient(client_session=session, retry_options=retry_options)
         async with retry_client.get(image_dict['image_link']) as response:
+            logging.info(f"Downloading image from: {image_dict['image_link']}")
             if response.status == 200:
                 filename_image_prompt = await slugify(image_dict['image_prompt'])
-                filename = f"{temp_dir}{os.sep}{filename_image_prompt[:50]}_{str(index)}.jpg"
+                file_name_substitute_dict = {
+                    'date': image_dict['creation_date'],
+                    'index': image_dict['index'],
+                    'prompt': filename_image_prompt[:50],
+                    'sep': '_'
+                }
+                template = string.Template(config['filename']['filename_pattern'])
+                file_name_formatted = template.safe_substitute(file_name_substitute_dict)
+                filename = f"{temp_dir}{os.sep}{file_name_formatted}.jpg"
+
                 async with aiofiles.open(filename, "wb") as f:
                     await f.write(await response.read())
+
                 await add_exif_metadata(image_dict, filename)
-                logging.info(f"Downloading image from: {image_dict['image_link']}")
+
                 return filename, image_dict['collection_name']
             else:
                 logging.warning(f"Failed to download {image_dict['image_link']} "
@@ -161,9 +184,19 @@ async def download_and_save_image(
                 async with retry_client.get(image_dict['thumbnail_link']) as thumbnail_response:
                     if thumbnail_response.status == 200:
                         filename_image_prompt = await slugify(image_dict['image_prompt'])
-                        filename = f"{temp_dir}{os.sep}T_{filename_image_prompt[:50]}_{str(index)}.jpg"
+                        file_name_substitute_dict = {
+                            'date': image_dict['creation_date'],
+                            'index': image_dict['index'],
+                            'prompt': filename_image_prompt[:50],
+                            'sep': '_'
+                        }
+                        template = string.Template(config['filename']['filename_pattern'])
+                        file_name_formatted = template.safe_substitute(file_name_substitute_dict)
+                        filename = f"{temp_dir}{os.sep}{file_name_formatted}_T.jpg"
+
                         async with aiofiles.open(filename, "wb") as f:
                             await f.write(await thumbnail_response.read())
+
                         await add_exif_metadata(image_dict, filename)
 
                         return filename, image_dict['collection_name']
@@ -176,8 +209,8 @@ async def download_and_save_image(
 
 async def add_exif_metadata(image_dict: dict, filename: str) -> None:
     """
-    Adds the src and alt parameter to the image as EXIF metadata.
-    :param image_dict: Dictionary containing prompt, image link and thumbnail link of the image.
+    Adds the prompt, image link,thumbnail link and creation date to the image as EXIF metadata.
+    :param image_dict: Dictionary containing metadata of the image.
     :param filename: The name of the file containing the image.
     :return: None
     """
@@ -187,6 +220,7 @@ async def add_exif_metadata(image_dict: dict, filename: str) -> None:
             'prompt': image_dict['image_prompt'],
             'image_link': image_dict['image_link'],
             'thumbnail_link': image_dict['thumbnail_link'],
+            'creation_date': image_dict['creation_date']
         }
         user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
         exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
@@ -210,6 +244,118 @@ async def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-_")
 
 
+async def set_creation_dates(image_data: list) -> None:
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            _set_creation_date(session, image)
+            for image
+            in image_data
+        ]
+        await asyncio.gather(*tasks)
+
+
+async def _set_creation_date(session: aiohttp.ClientSession, image: dict) -> None:
+    extracted_ids = await _extract_set_and_image_id(image['image_page_url'])
+    image_set_id = extracted_ids['image_set_id']
+    image_id = extracted_ids['image_id']
+    request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
+
+    statuses = {x for x in range(100, 600) if x != 200}
+    retry_options = ExponentialRetry(attempts=5, statuses=statuses)
+    retry_client = RetryClient(client_session=session, retry_options=retry_options)
+    async with retry_client.get(request_url) as response:
+        if response.status == 200:
+            data = await response.json()
+            images = data['value']
+            decoded_image_id = unquote(image_id)
+            resp_image = [img for img in images if img['imageId'] == decoded_image_id][0]
+            creation_date_string = resp_image['datePublished']
+            creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
+            creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
+            image['creation_date'] = creation_date_string_formatted
+        else:
+            logging.error(f"Failed to get detailed information for image: {image['image_page_url']} "
+                          f"for Reason: {response.status}: {response.reason}-> ")
+
+
+async def _extract_set_and_image_id(url: str) -> dict:
+    """
+    Extracts the image set and image id from the image page url.
+    :param url: The image page url i.e. https://www.bing.com/images/create/$prompt/$imageSetId?id=$imageId.
+    :return: A dictionary containing the image_set_id and image_id.
+    """
+    pattern = r"(?P<image_set_id>(?<=\/)[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
+    result = re.search(pattern, url)
+    image_set_id = result.group('image_set_id')
+    image_id = result.group('image_id')
+    id_dict = {'image_set_id': image_set_id, 'image_id': image_id}
+
+    return id_dict
+
+
+async def add_images_to_collection(collection_dict: dict) -> None:
+    session = requests.session()
+    statuses = {x for x in range(100, 600) if x != 200}
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=statuses)
+    session.mount('http://', requests.adapters.HTTPAdapter(max_retries=retries))
+    tasks = [add_image_to_collection(session, item['content'])
+             for collection in collection_dict['collections'] if should_add_collection_to_images(collection)
+             for item in collection['collectionPage']['items'] if should_add_item_to_images(item)
+             ]
+    logging.info(f"Adding {len(tasks)} images to the new collection.")
+    await asyncio.gather(*tasks)
+
+
+async def add_image_to_collection(session, content_dict: dict) -> None:
+    logging.info(f'Adding image {content_dict["url"]} to the collection.')
+    thumbnail_base64 = await _get_thumbnail_base64(session, content_dict['thumbnails'][0]['thumbnailUrl'])
+    header = {
+        "content-type": "application/json",
+        "cookie": os.getenv('COOKIE'),
+        "sid": "0"
+    }
+    body = {
+        "Items": [
+            {
+                "Title": content_dict['title'],
+                "ClickThroughUrl": content_dict['url'],
+                "ContentId": content_dict['contentId'],
+                "ItemTagPath": content_dict['itemTagPath'],
+                "ThumbnailInfo": [{
+                    "Thumbnail": f"data:image/jpeg;base64,{thumbnail_base64}",
+                    "Width": 1024,
+                    "Height": 1024
+                }],
+                "CustomData": content_dict['customData']
+            }
+        ],
+        "TargetCollection": {
+            "CollectionId": "3a165902d3a64b6c8f05f52ea2b830ee"
+        }
+    }
+    response = session.post(
+        url='https://www.bing.com/mysaves/collections/items/add?sid=0',
+        headers=header,
+        data=json.dumps(body)
+    )
+    try:
+        response_json = response.json()
+    except requests.JSONDecodeError:
+        raise Exception(f"The request to add the item to the collection was unsuccessful:"
+                        f"{response.status_code}")
+    if response.status_code != 200 or not response_json['isSuccess']:
+        raise Exception(f"Adding item to collection failed with following response:"
+                        f"{response.json()}")
+
+
+async def _get_thumbnail_base64(session, thumbnail_url: str) -> str:
+    thumbnail_url = re.match(r'[^?]+\?[^&]+', thumbnail_url).group(0)
+    thumbnail_response = session.get(url=thumbnail_url)
+    thumbnail_base64 = str(base64.b64encode(thumbnail_response.content).decode("utf-8"))
+
+    return thumbnail_base64
+
+
 async def main() -> None:
     """
     Entry point for the program. Calls all high level functionality.
@@ -219,6 +365,7 @@ async def main() -> None:
 
     logging.info(f"Fetching metadata of collections...")
     image_data = gather_image_data()
+    await set_creation_dates(image_data)
     logging.info(f"Starting download of {len(image_data)} images.")
     await download_and_zip_images(image_data)
 
