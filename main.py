@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -290,6 +291,69 @@ async def _extract_set_and_image_id(url: str) -> dict:
     id_dict = {'image_set_id': image_set_id, 'image_id': image_id}
 
     return id_dict
+
+
+async def add_images_to_collection(collection_dict: dict) -> None:
+    session = requests.session()
+    statuses = {x for x in range(100, 600) if x != 200}
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=statuses)
+    session.mount('http://', requests.adapters.HTTPAdapter(max_retries=retries))
+    tasks = [add_image_to_collection(session, item['content'])
+             for collection in collection_dict['collections'] if should_add_collection_to_images(collection)
+             for item in collection['collectionPage']['items'] if should_add_item_to_images(item)
+             ]
+    logging.info(f"Adding {len(tasks)} images to the new collection.")
+    await asyncio.gather(*tasks)
+
+
+async def add_image_to_collection(session, content_dict: dict) -> None:
+    logging.info(f'Adding image {content_dict["url"]} to the collection.')
+    thumbnail_base64 = await _get_thumbnail_base64(session, content_dict['thumbnails'][0]['thumbnailUrl'])
+    header = {
+        "content-type": "application/json",
+        "cookie": os.getenv('COOKIE'),
+        "sid": "0"
+    }
+    body = {
+        "Items": [
+            {
+                "Title": content_dict['title'],
+                "ClickThroughUrl": content_dict['url'],
+                "ContentId": content_dict['contentId'],
+                "ItemTagPath": content_dict['itemTagPath'],
+                "ThumbnailInfo": [{
+                    "Thumbnail": f"data:image/jpeg;base64,{thumbnail_base64}",
+                    "Width": 1024,
+                    "Height": 1024
+                }],
+                "CustomData": content_dict['customData']
+            }
+        ],
+        "TargetCollection": {
+            "CollectionId": "3a165902d3a64b6c8f05f52ea2b830ee"
+        }
+    }
+    response = session.post(
+        url='https://www.bing.com/mysaves/collections/items/add?sid=0',
+        headers=header,
+        data=json.dumps(body)
+    )
+    try:
+        response_json = response.json()
+    except requests.JSONDecodeError:
+        raise Exception(f"The request to add the item to the collection was unsuccessful:"
+                        f"{response.status_code}")
+    if response.status_code != 200 or not response_json['isSuccess']:
+        raise Exception(f"Adding item to collection failed with following response:"
+                        f"{response.json()}")
+
+
+async def _get_thumbnail_base64(session, thumbnail_url: str) -> str:
+    thumbnail_url = re.match(r'[^?]+\?[^&]+', thumbnail_url).group(0)
+    thumbnail_response = session.get(url=thumbnail_url)
+    thumbnail_base64 = str(base64.b64encode(thumbnail_response.content).decode("utf-8"))
+
+    return thumbnail_base64
 
 
 async def main() -> None:
