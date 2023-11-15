@@ -268,7 +268,8 @@ async def _set_creation_date(session: aiohttp.ClientSession, image: dict) -> Non
             data = await response.json()
             images = data['value']
             decoded_image_id = unquote(image_id)
-            resp_image = [img for img in images if img['imageId'] == decoded_image_id][0]
+            resp_image_arr = [img for img in images if img['imageId'] == decoded_image_id]
+            resp_image = images[0] if len(resp_image_arr) < 1 else resp_image_arr[0]
             creation_date_string = resp_image['datePublished']
             creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
             creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
