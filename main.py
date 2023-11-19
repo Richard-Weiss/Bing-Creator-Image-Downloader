@@ -286,7 +286,7 @@ async def _extract_set_and_image_id(url: str) -> dict:
     :return: A dictionary containing the image_set_id and image_id.
     """
     logging.info(f"Extracting image set id and image id from url: {url}")
-    pattern = r"(?P<image_set_id>(?<=\/)[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
+    pattern = r"(?P<image_set_id>(?<=\/)(?:\d\-)?[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
     result = re.search(pattern, url)
     image_set_id = result.group('image_set_id')
     image_id = result.group('image_id')
