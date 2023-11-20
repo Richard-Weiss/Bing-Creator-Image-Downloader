@@ -56,7 +56,7 @@ def gather_image_data() -> list:
     )
     if response.status_code == 200:
         collection_dict = response.json()
-        if len(collection_dict) == 0:
+        if len(collection_dict['collections']) == 0:
             raise Exception('No collections were found for the given cookie.')
         gathered_image_data = []
         for collection in collection_dict['collections']:
