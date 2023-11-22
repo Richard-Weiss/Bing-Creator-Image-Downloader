@@ -8,7 +8,7 @@ Downloads all Bing Creator images from a collection
 * Clone the repository or download and unzip
 * Get your `_U` cookie for Bing. For example like described in this [comment](https://old.reddit.com/r/bing/comments/172rpo6/is_there_any_way_to_download_image_collections/k72vjqs/) or this [package](https://pypi.org/project/sydney-py/)
 * Paste the value after the equals sign for the `_U` property in the `COOKIE` property in the `.env.example` file.
-* Add your own collections to the `collections_to_include` property in the `config.toml` or leave the property completely empty to download for all collections
+* Add your own collections to the `collections_to_include` property in the `config.toml` or leave the array empty to download for all collections
 * Rename the `.env.example` file to `.env`
 * Navigate to the folder of the repository
 * Open a terminal e.g. PowerShell

@@ -13,4 +13,6 @@ filename_pattern = "$date$sep$index$sep$prompt"
 # You can define if you want to only download specific collections or from all collections.
 # Leave the array empty to download all entries.
 # Also use "Saved Images" for the default collection and not your localization.
+# To include specific collections add the title to the array.
+# For example for a collection called `Bing AI images` add the entry "Bing AI images".
 collections_to_include = []
