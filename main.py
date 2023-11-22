@@ -5,7 +5,6 @@ import logging
 import os
 import re
 import string
-import sys
 import time
 import tomllib
 import zipfile
@@ -56,7 +55,7 @@ def gather_image_data() -> list:
     )
     if response.status_code == 200:
         collection_dict = response.json()
-        if len(collection_dict) == 0:
+        if len(collection_dict['collections']) == 0:
             raise Exception('No collections were found for the given cookie.')
         gathered_image_data = []
         for collection in collection_dict['collections']:
@@ -285,7 +284,7 @@ async def _extract_set_and_image_id(url: str) -> dict:
     :param url: The image page url i.e. https://www.bing.com/images/create/$prompt/$imageSetId?id=$imageId.
     :return: A dictionary containing the image_set_id and image_id.
     """
-    pattern = r"(?P<image_set_id>(?<=\/)[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
+    pattern = r"(?P<image_set_id>(?<=\/)(?:\d\-)?[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
     result = re.search(pattern, url)
     image_set_id = result.group('image_set_id')
     image_id = result.group('image_id')
@@ -377,5 +376,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     load_dotenv()
-    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO, stream=sys.stdout)
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)s %(message)s',
+        level=logging.INFO)
     asyncio.run(main())
