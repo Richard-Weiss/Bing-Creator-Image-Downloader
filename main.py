@@ -5,7 +5,6 @@ import logging
 import os
 import re
 import string
-import sys
 import time
 import tomllib
 import zipfile
@@ -285,7 +284,6 @@ async def _extract_set_and_image_id(url: str) -> dict:
     :param url: The image page url i.e. https://www.bing.com/images/create/$prompt/$imageSetId?id=$imageId.
     :return: A dictionary containing the image_set_id and image_id.
     """
-    logging.info(f"Extracting image set id and image id from url: {url}")
     pattern = r"(?P<image_set_id>(?<=\/)(?:\d\-)?[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
     result = re.search(pattern, url)
     image_set_id = result.group('image_set_id')
@@ -379,8 +377,6 @@ async def main() -> None:
 if __name__ == "__main__":
     load_dotenv()
     logging.basicConfig(
-        filename='13_bing_images.log',
-        filemode='a',
         format='%(asctime)s %(levelname)s %(message)s',
         level=logging.INFO)
     asyncio.run(main())
