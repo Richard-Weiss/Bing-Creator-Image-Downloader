@@ -74,7 +74,7 @@ class BingCreatorImageDownload:
         )
         if response.status_code == 200:
             collection_dict = response.json()
-            if len(collection_dict) == 0:
+            if len(collection_dict['collections']) == 0:
                 raise Exception('No collections were found for the given cookie.')
             gathered_image_data = []
             for collection in collection_dict['collections']:
@@ -218,7 +218,7 @@ class BingCreatorImageUtility:
         :param url: The image page url i.e. https://www.bing.com/images/create/$prompt/$imageSetId?id=$imageId.
         :return: A dictionary containing the image_set_id and image_id.
         """
-        pattern = r"(?P<image_set_id>(?<=\/)[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
+        pattern = r"(?P<image_set_id>(?<=\/)(?:\d\-)?[a-f0-9]{32})(?:\?id=)(?P<image_id>(?<=\?id=)[^&]+)"
         result = re.search(pattern, url)
         image_set_id = result.group('image_set_id')
         image_id = result.group('image_id')
@@ -227,13 +227,13 @@ class BingCreatorImageUtility:
         return id_dict
 
     @staticmethod
-    async def set_creation_date(image: dict) -> None:
+    async def set_creation_date(image_dict: dict) -> None:
         """
         Fetches and sets the creation date in the image dictionary.
-        :param image: Dictionary to set the "creation_date" value in.
+        :param image_dict: Dictionary to set the "creation_date" value in.
         :return: None
         """
-        extracted_ids = await BingCreatorImageUtility.extract_set_and_image_id(image['image_page_url'])
+        extracted_ids = await BingCreatorImageUtility.extract_set_and_image_id(image_dict['image_page_url'])
         image_set_id = extracted_ids['image_set_id']
         image_id = extracted_ids['image_id']
         request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
@@ -244,13 +244,14 @@ class BingCreatorImageUtility:
                     data = await response.json()
                     images = data['value']
                     decoded_image_id = unquote(image_id)
-                    resp_image = [img for img in images if img['imageId'] == decoded_image_id][0]
-                    creation_date_string = resp_image['datePublished']
+                    response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
+                    response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
+                    creation_date_string = response_image['datePublished']
                     creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
                     creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
-                    image['creation_date'] = creation_date_string_formatted
+                    image_dict['creation_date'] = creation_date_string_formatted
                 else:
-                    logging.error(f"Failed to get detailed information for image: {image['image_page_url']} "
+                    logging.error(f"Failed to get detailed information for image: {image_dict['image_page_url']} "
                                   f"for Reason: {response.status}: {response.reason}-> ")
 
     @staticmethod
@@ -531,5 +532,8 @@ async def main() -> None:
 
 if __name__ == "__main__":
     load_dotenv()
-    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO, stream=sys.stdout)
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)s %(message)s',
+        level=logging.INFO,
+        stream=sys.stdout)
     asyncio.run(main())
