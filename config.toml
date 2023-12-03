@@ -1,4 +1,5 @@
 [filename]
+
 # You can define your own custom pattern to be used for naming the image files.
 # Available parameters are:
 # date: The time the image was created using the Bing Image Creator. The date uses ISO-8601 formatting.
@@ -8,8 +9,11 @@
 #
 # The default file name would look like this: "2023-11-11T1512Z_0133_a-cute-cat".
 filename_pattern = "$date$sep$index$sep$prompt"
+# Uses your local time zone to format the filename. Set to false to use UTC.
+use_local_time_zone = true
 
 [collection]
+
 # You can define if you want to only download specific collections or from all collections.
 # Leave the array empty to download all entries.
 # Also use "Saved Images" for the default collection and not your localization.
