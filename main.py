@@ -52,7 +52,8 @@ class BingCreatorImageDownload:
         await self.__set_creation_dates()
         await self.__download_and_zip_images()
 
-    def __gather_image_data(self) -> list:
+    @staticmethod
+    def __gather_image_data() -> list:
         """
         Gathers all necessary data for each image from all collections.
         :return: A list containing dictionaries containing the interesting data for each image.
@@ -143,8 +144,14 @@ class BingCreatorImageDownload:
                     logging.info(f"Downloading image from: {image_dict['image_link']}")
                     if response.status == 200:
                         filename_image_prompt = await BingCreatorImageUtility.slugify(image_dict['image_prompt'])
+                        if config['filename']['use_local_time_zone']:
+                            creation_date = dateutil_parser.parse(image_dict['creation_date']) \
+                                .astimezone() \
+                                .strftime('%Y-%m-%dT%H%M%z')
+                        else:
+                            creation_date = image_dict['creation_date']
                         file_name_substitute_dict = {
-                            'date': image_dict['creation_date'],
+                            'date': creation_date,
                             'index': image_dict['index'],
                             'prompt': filename_image_prompt[:50],
                             'sep': '_'
@@ -169,8 +176,14 @@ class BingCreatorImageDownload:
                                 filename_image_prompt = await BingCreatorImageUtility.slugify(
                                     image_dict['image_prompt']
                                 )
+                                if config['filename']['use_local_time_zone']:
+                                    creation_date = dateutil_parser.parse(image_dict['creation_date']) \
+                                        .astimezone() \
+                                        .strftime('%Y-%m-%dT%H%M%z')
+                                else:
+                                    creation_date = image_dict['creation_date']
                                 file_name_substitute_dict = {
-                                    'date': image_dict['creation_date'],
+                                    'date': creation_date,
                                     'index': image_dict['index'],
                                     'prompt': filename_image_prompt[:50],
                                     'sep': '_'
