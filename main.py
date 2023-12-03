@@ -120,7 +120,7 @@ class BingCreatorImageDownload:
                     in self.__image_data
                 ]
                 file_names = await asyncio.gather(*tasks)
-                file_names = [file_name for file_name in file_names if not None]
+                file_names = list(filter(None, file_names))
                 for file_name, collection_name in file_names:
                     file_name: str
                     zip_file.write(file_name, arcname=os.path.join(collection_name, os.path.basename(file_name)))
