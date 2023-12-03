@@ -16,3 +16,9 @@ filename_pattern = "$date$sep$index$sep$prompt"
 # To include specific collections add the title to the array.
 # For example for a collection called `Bing AI images` add the entry "Bing AI images".
 collections_to_include = []
+
+[debug]
+
+debug = true
+use_log_file = true
+debug_filename = "bing_image_creator.log"

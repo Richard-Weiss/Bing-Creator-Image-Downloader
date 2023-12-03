@@ -19,13 +19,15 @@ import aiofiles.tempfile
 import aiohttp
 import aiohttp_retry
 import piexif as piexif
-from PIL import Image
 import requests
 import unicodedata
+from PIL import Image
 from aiohttp_retry import ExponentialRetry
 from aiohttp_retry import RetryClient
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
+from logging import StreamHandler
+from logging.handlers import RotatingFileHandler
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
@@ -35,11 +37,10 @@ class BingCreatorImageDownload:
     This class is used to download all images from the supplied collections.
     It gathers all the necessary data from the collections and downloads the images from them.
     """
+
     def __init__(self):
         self.__image_data = []
         self.image_count = 0
-        self.__config = BingCreatorImageConfig().config
-        self.__validator = BingCreatorImageValidator(self.__config)
 
     async def run(self):
         """
@@ -78,11 +79,11 @@ class BingCreatorImageDownload:
                 raise Exception('No collections were found for the given cookie.')
             gathered_image_data = []
             for collection in collection_dict['collections']:
-                if self.__validator.should_add_collection_to_images(collection):
+                if BingCreatorImageValidator.should_add_collection_to_images(collection):
                     with open('collection_dict_dump_debug.json', 'w') as f:
                         f.write(json.dumps(collection))
                     for index, item in enumerate(collection['collectionPage']['items']):
-                        if self.__validator.should_add_item_to_images(item):
+                        if BingCreatorImageValidator.should_add_item_to_images(item):
                             custom_data = json.loads(item['content']['customData'])
                             image_page_url = custom_data['PageUrl']
                             image_link = custom_data['MediaUrl']
@@ -125,8 +126,8 @@ class BingCreatorImageDownload:
                     file_name: str
                     zip_file.write(file_name, arcname=os.path.join(collection_name, os.path.basename(file_name)))
 
+    @staticmethod
     async def __download_and_save_image(
-            self,
             image_dict: dict,
             temp_dir: aiofiles.tempfile.TemporaryDirectory) -> tuple:
         """
@@ -148,7 +149,7 @@ class BingCreatorImageDownload:
                             'prompt': filename_image_prompt[:50],
                             'sep': '_'
                         }
-                        template = string.Template(self.__config['filename']['filename_pattern'])
+                        template = string.Template(config['filename']['filename_pattern'])
                         file_name_formatted = template.safe_substitute(file_name_substitute_dict)
                         filename = f"{temp_dir}{os.sep}{file_name_formatted}.jpg"
 
@@ -174,7 +175,7 @@ class BingCreatorImageDownload:
                                     'prompt': filename_image_prompt[:50],
                                     'sep': '_'
                                 }
-                                template = string.Template(self.__config['filename']['filename_pattern'])
+                                template = string.Template(config['filename']['filename_pattern'])
                                 file_name_formatted = template.safe_substitute(file_name_substitute_dict)
                                 filename = f"{temp_dir}{os.sep}{file_name_formatted}_T.jpg"
 
@@ -207,9 +208,6 @@ class BingCreatorImageUtility:
     """
     Contains functions that don't need a class instance.
     """
-
-    def __init__(self):
-        self.__config = BingCreatorImageConfig().config
 
     @staticmethod
     async def extract_set_and_image_id(url: str) -> dict:
@@ -296,6 +294,7 @@ class BingCreatorNetworkUtility:
     """
     Different request related functions.
     """
+
     @staticmethod
     def create_session() -> requests.Session:
         """
@@ -338,23 +337,13 @@ class BingCreatorNetworkUtility:
         return invalid_response
 
 
-class BingCreatorImageConfig:
-    """
-    Simple way to acquire the config file from any class.
-    """
-    def __init__(self):
-        with open('config.toml', 'rb') as cfg_file:
-            self.config = tomllib.load(cfg_file)
-
-
 class BingCreatorImageValidator:
     """
     Used to evaluate if different data should be considered for download.
     """
-    def __init__(self, config: dict):
-        self.__config = config
 
-    def should_add_collection_to_images(self, _collection: dict) -> bool:
+    @staticmethod
+    def should_add_collection_to_images(_collection: dict) -> bool:
         """
         Checks if a collection should be considered for download
         by checking the included collections and necessary keys.
@@ -362,7 +351,7 @@ class BingCreatorImageValidator:
         :return: Whether the collection should be added or not.
         """
         if 'collectionPage' in _collection and 'items' in _collection['collectionPage']:
-            collections_to_include = self.__config['collection']['collections_to_include']
+            collections_to_include = config['collection']['collections_to_include']
             if len(collections_to_include) == 0:
                 return True
             else:
@@ -395,8 +384,6 @@ class BingCreatorCollectionImport:
     def __init__(self, collection_dict_filename):
         with open(collection_dict_filename, 'r') as f:
             self.__collection_dict = json.load(f)
-
-        self.__validator = BingCreatorImageValidator(BingCreatorImageConfig().config)
 
     async def gather_images_to_collection(self) -> None:
         """
@@ -457,9 +444,9 @@ class BingCreatorCollectionImport:
         """
         tasks = [BingCreatorCollectionImport.__convert_item_to_request_format(item['content'])
                  for collection in self.__collection_dict['collections']
-                 if self.__validator.should_add_collection_to_images(collection)
+                 if BingCreatorImageValidator.should_add_collection_to_images(collection)
                  for item in collection['collectionPage']['items']
-                 if self.__validator.should_add_item_to_images(item)]
+                 if BingCreatorImageValidator.should_add_item_to_images(item)]
         items = await asyncio.gather(*tasks)
 
         return list(items)
@@ -527,13 +514,39 @@ async def main() -> None:
     end = time.time()
     elapsed = end - start
     logging.info(f"Finished downloading {bing_creator_image_download.image_count} images in"
-                 f" {round(elapsed, 2)} seconds.")
+                 f" {round(elapsed, 2)} seconds.\n")
+
+
+def init_logging() -> None:
+    """
+    Initializes logging for the program.
+    :return: None
+    """
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp_retry").setLevel(logging.WARNING)
+
+    log_level = logging.DEBUG if config['debug']['debug'] else logging.INFO
+    log_format = "%(asctime)s %(levelname)s %(message)s"
+    logging.basicConfig(
+        format=log_format,
+        level=log_level,
+        handlers=[StreamHandler(sys.stdout)]
+    )
+
+    if config['debug']['use_log_file']:
+        file_handler = RotatingFileHandler(
+            config['debug']['debug_filename'],
+            maxBytes=1000000,
+            backupCount=1)
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(logging.Formatter(log_format))
+        logging.getLogger().addHandler(file_handler)
 
 
 if __name__ == "__main__":
     load_dotenv()
-    logging.basicConfig(
-        format='%(asctime)s %(levelname)s %(message)s',
-        level=logging.INFO,
-        stream=sys.stdout)
+    with open('config.toml', 'rb') as cfg_file:
+        config = tomllib.load(cfg_file)
+    init_logging()
     asyncio.run(main())
