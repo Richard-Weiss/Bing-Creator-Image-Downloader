@@ -16,7 +16,9 @@ Downloads all Bing Creator images from a collection
 * Run `python .\main.py` afterward to run the script 
 * The images of the collection are saved in the `bing_images_$TodaysDate.zip` file
 
+### Limitations
+To download all images if you have more than 1000 images, see the workaround mentioned [here](https://github.com/Richard-Weiss/Bing-Creator-Image-Downloader/issues/9#issuecomment-1868284481).
+
 ### Addendum
-It should take about ~30-90 seconds to download 1500 images from my testing.  
-Each image contains the original prompt and image link as EXIF Metadata in the `UserComment` field in a JSON format.
+Each image contains the original prompt, image link, thumbnail link and creation date as EXIF Metadata in the `UserComment` field in a JSON format.
 If you encounter any errors or warnings in your log, please open a new issue.
