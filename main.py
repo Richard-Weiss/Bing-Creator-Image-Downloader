@@ -89,6 +89,7 @@ class BingCreatorImageDownload:
                             image_page_url = custom_data['PageUrl']
                             image_link = custom_data['MediaUrl']
                             image_prompt = custom_data['ToolTip']
+                            date_modified = item['dateModified']
                             collection_name = collection['title']
                             thumbnail_raw = item['content']['thumbnails'][0]['thumbnailUrl']
                             thumbnail_link = re.match('^[^&]+', thumbnail_raw).group(0)
@@ -100,7 +101,8 @@ class BingCreatorImageDownload:
                                 'collection_name': collection_name,
                                 'thumbnail_link': thumbnail_link,
                                 'image_page_url': image_page_url,
-                                'index': str((index + 1)).zfill(4)
+                                'index': str((index + 1)).zfill(4),
+                                'date_modified': date_modified,
                             }
                             gathered_image_data.append(image_dict)
             return gathered_image_data
@@ -254,10 +256,14 @@ class BingCreatorImageUtility:
                 if response.status == 200:
                     data = await response.json()
                     images = data['value']
-                    decoded_image_id = unquote(image_id)
-                    response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
-                    response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
-                    creation_date_string = response_image['datePublished']
+                    creation_date_string = ''
+                    if images is not None:
+                        decoded_image_id = unquote(image_id)
+                        response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
+                        response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
+                        creation_date_string = response_image['datePublished']
+                    else:
+                        creation_date_string = image_dict['date_modified']
                     creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
                     creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
                     image_dict['creation_date'] = creation_date_string_formatted
