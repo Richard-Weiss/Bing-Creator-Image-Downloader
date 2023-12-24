@@ -255,9 +255,8 @@ class BingCreatorImageUtility:
             async with BingCreatorNetworkUtility.create_retry_client(session).get(request_url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    images = data['value']
-                    creation_date_string = ''
-                    if images is not None:
+                    if 'value' in data:
+                        images = data['value']
                         decoded_image_id = unquote(image_id)
                         response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
                         response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
