@@ -10,8 +10,12 @@ import sys
 import time
 import tomllib
 import zipfile
+from dataclasses import dataclass
 from datetime import date
 from datetime import timezone
+from logging import StreamHandler
+from logging.handlers import RotatingFileHandler
+from typing import List
 from urllib.parse import unquote
 
 import aiofiles
@@ -26,10 +30,23 @@ from aiohttp_retry import ExponentialRetry
 from aiohttp_retry import RetryClient
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
-from logging import StreamHandler
-from logging.handlers import RotatingFileHandler
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
+
+
+@dataclass
+class BingCreatorImage:
+    """
+    This class is used to represent a single image and its properties.
+    """
+    image_link: str
+    prompt: str
+    collection_name: str
+    thumbnail_link: str
+    page_url: str
+    index: str
+    date_modified: str
+    creation_date: str = None
 
 
 class BingCreatorImageDownload:
@@ -39,7 +56,7 @@ class BingCreatorImageDownload:
     """
 
     def __init__(self):
-        self.__image_data = []
+        self.__images: List[BingCreatorImage] = []
         self.image_count = 0
 
     async def run(self):
@@ -47,16 +64,17 @@ class BingCreatorImageDownload:
         High level method that serves as the entry point.
         :return: None
         """
-        self.__image_data = self.__gather_image_data()
-        self.image_count = len(self.__image_data)
+        self.__images = self.__gather_image_data()
+        self.image_count = len(self.__images)
         await self.__set_creation_dates()
         await self.__download_and_zip_images()
 
     @staticmethod
-    def __gather_image_data() -> list:
+    def __gather_image_data() -> List[BingCreatorImage]:
         """
         Gathers all necessary data for each image from all collections.
-        :return: A list containing dictionaries containing the interesting data for each image.
+        :return: A list containing :class:`BingCreatorImage` objects.
+        :rtype: List[BingCreatorImage]
         """
         logging.info(f"Fetching metadata of collections...")
         header = {
@@ -95,16 +113,16 @@ class BingCreatorImageDownload:
                             thumbnail_link = re.match('^[^&]+', thumbnail_raw).group(0)
                             pattern = r'Image \d of \d$'
                             image_prompt = re.sub(pattern, '', image_prompt)
-                            image_dict = {
-                                'image_link': image_link,
-                                'image_prompt': image_prompt,
-                                'collection_name': collection_name,
-                                'thumbnail_link': thumbnail_link,
-                                'image_page_url': image_page_url,
-                                'index': str((index + 1)).zfill(4),
-                                'date_modified': date_modified,
-                            }
-                            gathered_image_data.append(image_dict)
+                            image = BingCreatorImage(
+                                image_link=image_link,
+                                prompt=image_prompt,
+                                collection_name=collection_name,
+                                thumbnail_link=thumbnail_link,
+                                page_url=image_page_url,
+                                index=str((index + 1)).zfill(4),
+                                date_modified=date_modified
+                            )
+                            gathered_image_data.append(image)
             return gathered_image_data
         else:
             raise Exception(f"Fetching collection failed with Error code"
@@ -115,13 +133,13 @@ class BingCreatorImageDownload:
         Downloads all images from the gathered image data and zips them.
         :return: None
         """
-        logging.info(f"Starting download of {len(self.__image_data)} images.")
+        logging.info(f"Starting download of {len(self.__images)} images.")
         with zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w") as zip_file:
             async with aiofiles.tempfile.TemporaryDirectory('wb') as temp_dir:
                 tasks = [
-                    self.__download_and_save_image(image_dict, temp_dir)
-                    for image_dict
-                    in self.__image_data
+                    self.__download_and_save_image(image, temp_dir)
+                    for image
+                    in self.__images
                 ]
                 file_names = await asyncio.gather(*tasks)
                 file_names = list(filter(None, file_names))
@@ -131,30 +149,30 @@ class BingCreatorImageDownload:
 
     @staticmethod
     async def __download_and_save_image(
-            image_dict: dict,
+            image: BingCreatorImage,
             temp_dir: aiofiles.tempfile.TemporaryDirectory) -> tuple:
         """
-        Downloads an image using the image link in the supplied dictionary.
-        :param image_dict: Dictionary containing link, prompt collection name and thumbnail link of an image.
+        Downloads an image using the links in the supplied image.
+        :param image: :class:`BingCreatorImage` containing the necessary properties.
         :param temp_dir: The directory to save files to before zipping.
         :return: The filename and collection name of the downloaded file.
         """
         try:
             async with aiohttp.ClientSession() as session:
                 async with BingCreatorNetworkUtility.create_retry_client(session).get(
-                        image_dict['image_link']) as response:
-                    logging.info(f"Downloading image from: {image_dict['image_link']}")
+                        image.image_link) as response:
+                    logging.info(f"Downloading image from: {image.image_link}")
                     if response.status == 200:
-                        filename_image_prompt = await BingCreatorImageUtility.slugify(image_dict['image_prompt'])
+                        filename_image_prompt = await BingCreatorImageUtility.slugify(image.prompt)
                         if config['filename']['use_local_time_zone']:
-                            creation_date = dateutil_parser.parse(image_dict['creation_date']) \
+                            creation_date = dateutil_parser.parse(image.creation_date) \
                                 .astimezone() \
                                 .strftime('%Y-%m-%dT%H%M%z')
                         else:
-                            creation_date = image_dict['creation_date']
+                            creation_date = image.creation_date
                         file_name_substitute_dict = {
                             'date': creation_date,
-                            'index': image_dict['index'],
+                            'index': image.index,
                             'prompt': filename_image_prompt[:50],
                             'sep': '_'
                         }
@@ -165,28 +183,28 @@ class BingCreatorImageDownload:
                         async with aiofiles.open(filename, "wb") as f:
                             await f.write(await response.read())
 
-                        await BingCreatorImageUtility.add_exif_metadata(image_dict, filename)
+                        await BingCreatorImageUtility.add_exif_metadata(image, filename)
 
-                        return filename, image_dict['collection_name']
+                        return filename, image.collection_name
                     else:
-                        logging.warning(f"Failed to download {image_dict['image_link']} "
+                        logging.warning(f"Failed to download {image.image_link} "
                                         f"for Reason: {response.status}: {response.reason}-> "
-                                        f"Retrying with thumbnail {image_dict['thumbnail_link']}")
+                                        f"Retrying with thumbnail {image.thumbnail_link}")
                         async with BingCreatorNetworkUtility.create_retry_client(session).get(
-                                image_dict['thumbnail_link']) as thumbnail_response:
+                                image.thumbnail_link) as thumbnail_response:
                             if thumbnail_response.status == 200:
                                 filename_image_prompt = await BingCreatorImageUtility.slugify(
-                                    image_dict['image_prompt']
+                                    image.prompt
                                 )
                                 if config['filename']['use_local_time_zone']:
-                                    creation_date = dateutil_parser.parse(image_dict['creation_date']) \
+                                    creation_date = dateutil_parser.parse(image.creation_date) \
                                         .astimezone() \
                                         .strftime('%Y-%m-%dT%H%M%z')
                                 else:
-                                    creation_date = image_dict['creation_date']
+                                    creation_date = image.creation_date
                                 file_name_substitute_dict = {
                                     'date': creation_date,
-                                    'index': image_dict['index'],
+                                    'index': image.index,
                                     'prompt': filename_image_prompt[:50],
                                     'sep': '_'
                                 }
@@ -197,11 +215,11 @@ class BingCreatorImageDownload:
                                 async with aiofiles.open(filename, "wb") as f:
                                     await f.write(await thumbnail_response.read())
 
-                                await BingCreatorImageUtility.add_exif_metadata(image_dict, filename)
+                                await BingCreatorImageUtility.add_exif_metadata(image, filename)
 
-                                return filename, image_dict['collection_name']
+                                return filename, image.collection_name
                             else:
-                                logging.warning(f"Failed to download {image_dict['thumbnail_link']} "
+                                logging.warning(f"Failed to download {image.thumbnail_link} "
                                                 f"for Reason: {thumbnail_response.status}: {thumbnail_response.reason}")
         except Exception as e:
             logging.exception(e)
@@ -214,7 +232,7 @@ class BingCreatorImageDownload:
         tasks = [
             BingCreatorImageUtility.set_creation_date(image)
             for image
-            in self.__image_data
+            in self.__images
         ]
         await asyncio.gather(*tasks)
 
@@ -240,13 +258,13 @@ class BingCreatorImageUtility:
         return id_dict
 
     @staticmethod
-    async def set_creation_date(image_dict: dict) -> None:
+    async def set_creation_date(image: BingCreatorImage) -> None:
         """
-        Fetches and sets the creation date in the image dictionary.
-        :param image_dict: Dictionary to set the "creation_date" value in.
+        Fetches and sets the creation date for the image.
+        :param image: :class:`BingCreatorImage` object to set the `creation_date` value for.
         :return: None
         """
-        extracted_ids = await BingCreatorImageUtility.extract_set_and_image_id(image_dict['image_page_url'])
+        extracted_ids = await BingCreatorImageUtility.extract_set_and_image_id(image.page_url)
         image_set_id = extracted_ids['image_set_id']
         image_id = extracted_ids['image_id']
         request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
@@ -262,29 +280,32 @@ class BingCreatorImageUtility:
                         response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
                         creation_date_string = response_image['datePublished']
                     else:
-                        creation_date_string = image_dict['date_modified']
+                        creation_date_string = image.date_modified
                     creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
                     creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
-                    image_dict['creation_date'] = creation_date_string_formatted
+                    image.creation_date = creation_date_string_formatted
                 else:
-                    logging.error(f"Failed to get detailed information for image: {image_dict['image_page_url']} "
-                                  f"for Reason: {response.status}: {response.reason}-> ")
+                    logging.error(f"Failed to get detailed information for image: {image.page_url} "
+                                  f"for Reason: {response.status}: {response.reason}.")
+                    image.creation_date = dateutil_parser.parse(date.today().isoformat()) \
+                        .astimezone() \
+                        .strftime('%Y-%m-%dT%H%M%z')
 
     @staticmethod
-    async def add_exif_metadata(image_dict: dict, filename: str) -> None:
+    async def add_exif_metadata(image: BingCreatorImage, filename: str) -> None:
         """
-        Adds the prompt, image link,thumbnail link and creation date to the image as EXIF metadata.
-        :param image_dict: Dictionary containing metadata of the image.
-        :param filename: The name of the file containing the image.
+        Adds the prompt, image link, thumbnail link and creation date to the image as EXIF metadata.
+        :param image: :class:`BingCreatorImage` object containing the properties to save.
+        :param filename: The name of the image file to which the metadata will be added.
         :return: None
         """
         with open(filename, 'rb') as img:
             exif_dict = piexif.load(img.read())
             user_comment = {
-                'prompt': image_dict['image_prompt'],
-                'image_link': image_dict['image_link'],
-                'thumbnail_link': image_dict['thumbnail_link'],
-                'creation_date': image_dict['creation_date']
+                'prompt': image.prompt,
+                'image_link': image.image_link,
+                'thumbnail_link': image.thumbnail_link,
+                'creation_date': image.creation_date
             }
             user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
             exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
@@ -527,11 +548,11 @@ async def main() -> None:
     :return: None
     """
     start = time.time()
-    bing_creator_image_download = BingCreatorImageDownload()
-    await bing_creator_image_download.run()
+    image_download = BingCreatorImageDownload()
+    await image_download.run()
     end = time.time()
     elapsed = end - start
-    logging.info(f"Finished downloading {bing_creator_image_download.image_count} images in"
+    logging.info(f"Finished downloading {image_download.image_count} images in"
                  f" {round(elapsed, 2)} seconds.\n")
 
 
