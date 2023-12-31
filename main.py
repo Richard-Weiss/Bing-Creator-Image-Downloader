@@ -23,7 +23,7 @@ import aiofiles.tempfile
 import aiohttp
 import aiohttp.hdrs
 import aiohttp_retry
-import piexif as piexif
+import piexif
 import requests
 import unicodedata
 from PIL import Image
@@ -211,9 +211,9 @@ class BingCreatorImageDownload:
                                 await f.write(image_bytes)
 
                             image.used_image_url = str(response.url)
-                            await BingCreatorImageUtility.add_exif_metadata(image, filename)
-                            logging.info(f"Successfully downloaded image #{image.index} from: {url}.")
                             image.file_name = filename
+                            await BingCreatorImageUtility.add_exif_metadata(image)
+                            logging.info(f"Successfully downloaded image #{image.index} from: {url}.")
                             image.is_success = True
                             image.reason = response.reason
                             return
@@ -301,24 +301,25 @@ class BingCreatorImageUtility:
                         .strftime('%Y-%m-%dT%H%M%z')
 
     @staticmethod
-    async def add_exif_metadata(image: BingCreatorImage, filename: str) -> None:
+    async def add_exif_metadata(image: BingCreatorImage) -> None:
         """
         Adds the prompt, image url and creation date to the image as EXIF metadata in JSON format.
         :param image: :class:`BingCreatorImage` object containing the properties to save.
-        :param filename: The name of the image file to which the metadata will be added.
         :return: None
         """
-        with open(filename, 'rb') as img:
-            exif_dict = piexif.load(img.read())
+        with open(image.file_name, 'rb') as f:
+            exif_dict = piexif.load(f.read())
             user_comment = {
                 'prompt': image.prompt,
                 'image_url': image.used_image_url,
                 'creation_date': image.creation_date
             }
-            user_comment_bytes = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
-            exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_bytes
+            user_comment_utf_8 = json.dumps(user_comment, ensure_ascii=False).encode("utf-8")
+            exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment_utf_8
+            user_comment_utf_16le = json.dumps(user_comment, ensure_ascii=False).encode('utf-16le')
+            exif_dict['0th'][piexif.ImageIFD.XPComment] = user_comment_utf_16le
             exif_bytes = piexif.dump(exif_dict)
-            piexif.insert(exif_bytes, filename)
+            piexif.insert(exif_bytes, image.file_name)
 
     @staticmethod
     async def slugify(text: str) -> str:
