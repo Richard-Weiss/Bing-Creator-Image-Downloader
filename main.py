@@ -123,12 +123,15 @@ class BingCreatorImageDownload:
                             image_prompt = custom_data['ToolTip']
                             date_modified = item['dateModified']
                             collection_name = collection['title']
-                            thumbnail_raw = item['content']['thumbnails'][0]['thumbnailUrl']
-                            thumbnail_url = re.match('^[^&]+', thumbnail_raw).group(0)
+                            image_urls = [(1, image_url)]
+                            if 'thumbnails' in item['content']:
+                                thumbnail_raw = item['content']['thumbnails'][0]['thumbnailUrl']
+                                thumbnail_url = re.match('^[^&]+', thumbnail_raw).group(0)
+                                image_urls.append((3, thumbnail_url))
                             pattern = r'Image \d of \d$'
                             image_prompt = re.sub(pattern, '', image_prompt)
                             image = BingCreatorImage(
-                                image_urls=[(1, image_url), (3, thumbnail_url)],
+                                image_urls=image_urls,
                                 prompt=image_prompt,
                                 collection_name=collection_name,
                                 page_url=image_page_url,
