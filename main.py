@@ -557,6 +557,11 @@ async def main() -> None:
     :return: None
     """
     start = time.time()
+    cookie = os.getenv('COOKIE')
+    if bool(cookie):
+        logging.debug(f"Loaded cookie ending with: {cookie[-16:]}")
+    else:
+        raise Exception("No cookie was found in the .env file.")
     image_download = BingCreatorImageDownload()
     await image_download.run()
     end = time.time()
