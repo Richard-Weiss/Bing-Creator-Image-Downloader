@@ -8,6 +8,7 @@
 # sep: A seperator that may be used between parameters.
 #
 # The default file name would look like this: "2023-11-11T1512Z_0133_a-cute-cat".
+# If the width is smaller than 1024 pixels, a "_T" for thumbnail will be added.
 filename_pattern = "$date$sep$index$sep$prompt"
 # Uses your local time zone to format the filename. Set to false to use UTC.
 use_local_time_zone = true
