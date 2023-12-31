@@ -24,6 +24,11 @@ collections_to_include = []
 
 [debug]
 
+# Enables additional debug statements and debug functionality.
 debug = true
+# Enables logging the console output to a file.
 use_log_file = true
+# The filename of the log file.
 debug_filename = "bing_image_creator.log"
+# Displays more detailed statistics at the end of the program.
+detailed_statistics = false

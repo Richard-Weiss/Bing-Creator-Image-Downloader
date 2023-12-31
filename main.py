@@ -32,6 +32,7 @@ from aiohttp_retry import RetryClient
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
+from tabulate import tabulate
 from urllib3 import Retry
 
 
@@ -41,13 +42,18 @@ class BingCreatorImage:
     This class is used to represent a single image and its properties.
     """
     image_urls: List[Tuple[int, str]]
+    index: str
     prompt: str
     collection_name: str
     page_url: str
-    index: str
     date_modified: str
     creation_date: str = None
     used_image_url: str = None
+    file_name: str = None
+    is_thumbnail: bool = False
+    is_success: bool = False
+    reason: str = None
+    attempts: int = 0
 
 
 class BingCreatorImageDownload:
@@ -58,7 +64,12 @@ class BingCreatorImageDownload:
 
     def __init__(self):
         self.__images: List[BingCreatorImage] = []
-        self.image_count = 0
+        self.total_image_count = 0
+        self.successful_image_count = 0
+
+    @property
+    def images(self):
+        return self.__images
 
     async def run(self):
         """
@@ -66,7 +77,7 @@ class BingCreatorImageDownload:
         :return: None
         """
         self.__images = self.__gather_image_data()
-        self.image_count = len(self.__images)
+        self.total_image_count = len(self.__images)
         await self.__set_additional_data()
         await self.__download_and_zip_images()
 
@@ -101,8 +112,9 @@ class BingCreatorImageDownload:
             index = 1
             for collection in collection_dict['collections']:
                 if BingCreatorImageValidator.should_add_collection_to_images(collection):
-                    with open('collection_dict_dump_debug.json', 'w') as f:
-                        f.write(json.dumps(collection))
+                    if config['debug']['debug']:
+                        with open('collection_dict_dump_debug.json', 'w') as f:
+                            f.write(json.dumps(collection))
                     for item in collection['collectionPage']['items']:
                         if BingCreatorImageValidator.should_add_item_to_images(item):
                             custom_data = json.loads(item['content']['customData'])
@@ -143,27 +155,31 @@ class BingCreatorImageDownload:
                     for image
                     in self.__images
                 ]
-                file_names = await asyncio.gather(*tasks)
-                file_names = list(filter(None, file_names))
-                for file_name, collection_name in file_names:
-                    file_name: str
-                    zip_file.write(file_name, arcname=os.path.join(collection_name, os.path.basename(file_name)))
+                await asyncio.gather(*tasks)
+                successful_images = [image for image in self.__images if image.is_success]
+                self.successful_image_count = len(successful_images)
+                for image in successful_images:
+                    zip_file.write(
+                        filename=image.file_name,
+                        arcname=os.path.join(image.collection_name, os.path.basename(image.file_name))
+                    )
 
     @staticmethod
     async def __download_and_save_image(
             image: BingCreatorImage,
-            temp_dir: aiofiles.tempfile.TemporaryDirectory) -> tuple:
+            temp_dir: aiofiles.tempfile.TemporaryDirectory) -> None:
         """
         Downloads an image using the urls in the supplied image.
         :param image: :class:`BingCreatorImage` containing the necessary properties.
         :param temp_dir: The directory to save files to before zipping.
-        :return: The filename and collection name of the downloaded file.
+        :return: None
         """
         try:
             async with aiohttp.ClientSession() as session:
                 for index, (_, url) in enumerate(image.image_urls):
                     async with BingCreatorNetworkUtility.create_retry_client(session).get(url) as response:
                         logging.info(f"Downloading image #{image.index} from: {url}")
+                        image.attempts = image.attempts + 1
                         if response.status == 200:
                             filename_image_prompt = await BingCreatorImageUtility.slugify(image.prompt)
                             if config['filename']['use_local_time_zone']:
@@ -185,6 +201,7 @@ class BingCreatorImageDownload:
                                 image_width = pil_image.width
                             if image_width < 1024:
                                 file_name_formatted += '_T'
+                                image.is_thumbnail = True
                             filename = f"{temp_dir}{os.sep}{file_name_formatted}.jpg"
 
                             async with aiofiles.open(filename, "wb") as f:
@@ -193,14 +210,18 @@ class BingCreatorImageDownload:
                             image.used_image_url = str(response.url)
                             await BingCreatorImageUtility.add_exif_metadata(image, filename)
                             logging.info(f"Successfully downloaded image #{image.index} from: {url}.")
-                            return filename, image.collection_name
+                            image.file_name = filename
+                            image.is_success = True
+                            image.reason = response.reason
+                            return
                         else:
                             warning_output = (f"Image #{image.index}: Failed to download {url} "
                                               f"for Reason: {response.status}: {response.reason}")
                             if index != len(image.image_urls) - 1:
                                 warning_output += " -> Retrying with next URL."
                             logging.warning(warning_output)
-            raise Exception(f"Image #{image.index}: Failed to download from any sources.")
+                    image.reason = response.reason
+            logging.error(f"Image #{image.index}: Failed to download from any sources.")
         except Exception as e:
             logging.error(e)
 
@@ -536,8 +557,39 @@ async def main() -> None:
     await image_download.run()
     end = time.time()
     elapsed = end - start
-    logging.info(f"Finished downloading {image_download.image_count} images in"
+    logging.info(f"Successfully downloaded {image_download.successful_image_count}"
+                 f" of {image_download.total_image_count} images in"
                  f" {round(elapsed, 2)} seconds.\n")
+    if config['debug']['detailed_statistics']:
+        output_statistics(image_download.images)
+
+
+def output_statistics(images: List[BingCreatorImage]) -> None:
+    """
+    Outputs statistics about the downloaded images in the console and a file.
+    :param images: All images that were attempted to download.
+    :return: None
+    """
+    print("Detailed statistics:")
+    data = []
+    for image in images:
+        data.append([
+            image.index,
+            image.prompt[:50],
+            image.page_url,
+            image.is_success,
+            image.reason,
+            image.attempts,
+            image.is_thumbnail
+        ])
+    table_str = tabulate(
+        data,
+        headers=["Index", "Prompt", "Page URL", "Success", "Reason", "Attempts", "Thumbnail"],
+        tablefmt='pipe'
+    )
+    with open('detailed_statistics.md', 'w') as f:
+        f.write(table_str)
+    print(table_str)
 
 
 def init_logging() -> None:
