@@ -29,6 +29,7 @@ import unicodedata
 from PIL import Image
 from aiohttp_retry import ExponentialRetry
 from aiohttp_retry import RetryClient
+from asyncio import Semaphore
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
@@ -96,7 +97,7 @@ class BingCreatorImageDownload:
         }
         body = {
             "collectionItemType": "all",
-            "maxItemsToFetch": 10000,
+            "maxItemsToFetch": 1000,
             "shouldFetchMetadata": True
         }
         response = BingCreatorNetworkUtility.create_session().post(
@@ -183,7 +184,7 @@ class BingCreatorImageDownload:
                     async with BingCreatorNetworkUtility.create_retry_client(session).get(url) as response:
                         logging.info(f"Downloading image #{image.index} from: {url}")
                         image.attempts = image.attempts + 1
-                        if response.status == 200:
+                        if response.status == 200 and response.content_type == 'image/jpeg':
                             filename_image_prompt = await BingCreatorImageUtility.slugify(image.prompt)
                             if config['filename']['use_local_time_zone']:
                                 creation_date = dateutil_parser.parse(image.creation_date) \
@@ -233,8 +234,9 @@ class BingCreatorImageDownload:
         Sets the creation date and adds additional fetch URLs for each image.
         :return: None
         """
+        semaphore = Semaphore(250)
         tasks = [
-            BingCreatorImageUtility.set_additional_data(image)
+            BingCreatorImageUtility.set_additional_data(image, semaphore)
             for image
             in self.__images
         ]
@@ -262,9 +264,10 @@ class BingCreatorImageUtility:
         return id_dict
 
     @staticmethod
-    async def set_additional_data(image: BingCreatorImage) -> None:
+    async def set_additional_data(image: BingCreatorImage, semaphore: asyncio.Semaphore) -> None:
         """
         Fetches and sets additional data from the detail API.
+        :param semaphore: Limits concurrency for the request.
         :param image: :class:`BingCreatorImage` object to set the `creation_date` value for.
         :return: None
         """
@@ -273,32 +276,33 @@ class BingCreatorImageUtility:
         image_id = extracted_ids['image_id']
         request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
 
-        async with aiohttp.ClientSession() as session:
-            async with BingCreatorNetworkUtility.create_retry_client(session).get(request_url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if 'value' in data:
-                        images = data['value']
-                        decoded_image_id = unquote(image_id)
-                        response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
-                        response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
-                        creation_date_string = response_image['datePublished']
-                        if not any(response_image['contentUrl'] == url for _, url in image.image_urls):
-                            image.image_urls.append((2, response_image['contentUrl']))
-                        if not any(response_image['thumbnailUrl'] == url for _, url in image.image_urls):
-                            image.image_urls.append((4, response_image['thumbnailUrl']))
-                        image.image_urls = sorted(image.image_urls, key=lambda url: url[0])
+        async with semaphore:
+            async with aiohttp.ClientSession() as session:
+                async with BingCreatorNetworkUtility.create_retry_client(session).get(request_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if 'value' in data:
+                            images = data['value']
+                            decoded_image_id = unquote(image_id)
+                            response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
+                            response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
+                            creation_date_string = response_image['datePublished']
+                            if not any(response_image['contentUrl'] == url for _, url in image.image_urls):
+                                image.image_urls.append((2, response_image['contentUrl']))
+                            if not any(response_image['thumbnailUrl'] == url for _, url in image.image_urls):
+                                image.image_urls.append((4, response_image['thumbnailUrl']))
+                            image.image_urls = sorted(image.image_urls, key=lambda url: url[0])
+                        else:
+                            creation_date_string = image.date_modified
+                        creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
+                        creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
+                        image.creation_date = creation_date_string_formatted
                     else:
-                        creation_date_string = image.date_modified
-                    creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
-                    creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
-                    image.creation_date = creation_date_string_formatted
-                else:
-                    logging.error(f"Failed to get detailed information for image: {image.page_url} "
-                                  f"for Reason: {response.status}: {response.reason}.")
-                    image.creation_date = dateutil_parser.parse(date.today().isoformat()) \
-                        .astimezone() \
-                        .strftime('%Y-%m-%dT%H%M%z')
+                        logging.error(f"Failed to get detailed information for image: {image.page_url} "
+                                      f"for Reason: {response.status}: {response.reason}.")
+                        image.creation_date = dateutil_parser.parse(date.today().isoformat()) \
+                            .astimezone() \
+                            .strftime('%Y-%m-%dT%H%M%z')
 
     @staticmethod
     async def add_exif_metadata(image: BingCreatorImage) -> None:
@@ -442,7 +446,7 @@ class BingCreatorCollectionImport:
         logging.info("Creating thumbnails...")
         item_list = await self.__construct_item_list()
         logging.info(f"Adding {len(item_list)} items to the collection...")
-        semaphore = asyncio.Semaphore(10)
+        semaphore = Semaphore(10)
         tasks = [self.add_image_to_collection(item, semaphore) for item in item_list]
         await asyncio.gather(*tasks)
 
