@@ -30,6 +30,11 @@ class APIImageSourceStrategy(ImageSourceStrategy):
         :return: A list containing :class:`BingCreatorImage` objects.
         :rtype: List[Image]
         """
+        cookie = os.getenv('COOKIE')
+        if cookie:
+            logging.debug(f"Loaded cookie ending with: {cookie[-16:]}")
+        else:
+            raise Exception("No cookie was found in the .env file.")
         images = APIImageSourceStrategy.get_image_data()
         await APIImageSourceStrategy.__gather_additional_data(images)
 
