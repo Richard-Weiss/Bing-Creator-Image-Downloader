@@ -7,7 +7,7 @@ from typing import List
 
 import aiofiles.tempfile
 import aiohttp
-from PIL import Image
+from PIL import Image as PIL_Image
 import string
 from dateutil import parser as dateutil_parser
 
@@ -105,7 +105,7 @@ class ImageDownload:
                             template = string.Template(self.__config['filename']['filename_pattern'])
                             file_name_formatted = template.safe_substitute(file_name_substitute_dict)
                             image_bytes = await response.read()
-                            with Image.open(BytesIO(image_bytes)) as pil_image:
+                            with PIL_Image.open(BytesIO(image_bytes)) as pil_image:
                                 image_width = pil_image.width
                             if image_width < 1024:
                                 file_name_formatted += '_T'
