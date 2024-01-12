@@ -9,7 +9,7 @@ from asyncio import Semaphore
 
 import aiohttp
 import requests
-from PIL import Image
+from PIL import Image as PIL_Image
 
 from utilities.image_validator import ImageValidator
 from utilities.network_utility import NetworkUtility
@@ -133,7 +133,7 @@ class CollectionImport:
         async with aiohttp.ClientSession() as session:
             async with NetworkUtility.create_retry_client(session).get(thumbnail_url) as response:
                 thumbnail_content = await response.read()
-                img = Image.open(io.BytesIO(thumbnail_content))
+                img = PIL_Image.open(io.BytesIO(thumbnail_content))
                 img.thumbnail((468, 468))
                 buffered = io.BytesIO()
                 img.save(buffered, format="JPEG")
