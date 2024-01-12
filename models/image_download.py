@@ -131,4 +131,7 @@ class ImageDownload:
                     image.reason = response.reason
             logging.error(f"Image #{image.index}: Failed to download from any sources.")
         except Exception as e:
-            logging.error(e)
+            if Config().value['debug']['debug']:
+                logging.exception(e)
+            else:
+                logging.error(e)
