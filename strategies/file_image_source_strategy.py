@@ -19,6 +19,7 @@ class FileImageSourceStrategy(ImageSourceStrategy):
     async def get_images(self) -> List[Image]:
         logging.info(f"Fetching metadata of images...")
         image_id_list = await FileImageSourceStrategy.__get_image_ids_from_file()
+        image_id_list = reversed(image_id_list)
         semaphore = Semaphore(250)
         tasks = [
             FileImageSourceStrategy.get_image_data(image_ids, semaphore, index)
