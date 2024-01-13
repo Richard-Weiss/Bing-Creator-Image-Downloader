@@ -26,6 +26,24 @@ class FileImageSourceStrategy(ImageSourceStrategy):
             in enumerate(image_id_list)
         ]
         images = await asyncio.gather(*tasks)
+        max_retries = 5
+        retries = 0
+        while None in images and retries < max_retries:
+            logging.warn(f"Failed to get detailed information for some images."
+                         f"Retrying ({retries + 1}) and merging...")
+            tasks = [
+                FileImageSourceStrategy.get_image_data(image_ids, semaphore, index)
+                for index, image_ids
+                in enumerate(image_id_list)
+            ]
+            images_next = await asyncio.gather(*tasks)
+            result = map(
+                lambda img1, img2: img1 if img1 is not None else img2,
+                images,
+                images_next
+            )
+            images = list(result)
+            retries += 1        
         images = [image for image in images if image is not None]
 
         return images
