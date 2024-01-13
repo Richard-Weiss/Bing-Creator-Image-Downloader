@@ -33,7 +33,7 @@ class NetworkUtility:
         :return: The created retry client.
         """
         statuses = {x for x in range(100, 600) if x != 200}
-        retry_options = ExponentialRetry(statuses=statuses)
+        retry_options = ExponentialRetry(attempts=8, start_timeout=1, max_timeout=128, statuses=statuses)
         retry_client = RetryClient(client_session=session, retry_options=retry_options)
 
         return retry_client
