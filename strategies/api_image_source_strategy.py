@@ -136,7 +136,7 @@ class APIImageSourceStrategy(ImageSourceStrategy):
                 async with NetworkUtility.create_retry_client(session).get(request_url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        if 'value' in data:
+                        if 'value' in data and data['value'] is not None:
                             images = data['value']
                             decoded_image_id = unquote(image_id)
                             response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
