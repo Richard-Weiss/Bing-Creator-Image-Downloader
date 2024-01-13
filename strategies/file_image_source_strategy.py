@@ -68,6 +68,6 @@ class FileImageSourceStrategy(ImageSourceStrategy):
         with open("images_clipboard.txt", "r", encoding='utf8') as f:
             content = f.read().splitlines()
         image_url_list = [line for line in content if line.startswith("https://www.bing.com/images/create")]
-        image_ids = [await ImageUtility.extract_set_and_image_id(url) for url in image_url_list]
+        image_ids = [await ImageUtility.extract_set_and_image_id(url) for url in reversed(image_url_list)]
 
         return image_ids
