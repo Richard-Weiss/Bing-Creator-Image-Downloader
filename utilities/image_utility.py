@@ -83,7 +83,8 @@ class ImageUtility:
 
         async with semaphore:
             async with aiohttp.ClientSession() as session:
-                async with NetworkUtility.create_retry_client(session).get(request_url) as response:
+                retry_client = NetworkUtility.create_retry_client(session, attempts=8, max_timeout=128)
+                async with retry_client.get(request_url) as response:
                     if response.status == 200:
                         data = await response.json()
                         if 'value' in data and data['value'] is not None:
