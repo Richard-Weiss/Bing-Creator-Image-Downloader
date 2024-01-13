@@ -26,7 +26,7 @@ class NetworkUtility:
         return session
 
     @staticmethod
-    def create_retry_client(session: aiohttp.ClientSession, attempts=3, max_timeout=8) -> aiohttp_retry.RetryClient:
+    def create_retry_client(session: aiohttp.ClientSession, attempts=4, max_timeout=16) -> aiohttp_retry.RetryClient:
         """
         Creates a retry client used for making requests to the different APIs.
         :param session: Session to use in the retry client.
