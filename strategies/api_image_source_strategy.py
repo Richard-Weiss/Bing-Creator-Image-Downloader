@@ -3,19 +3,17 @@ import json
 import logging
 import os
 import re
-from typing import List
-from urllib.parse import unquote
-from datetime import date, timezone
-
-import aiohttp
 from asyncio import Semaphore
+from datetime import timezone, date
+from typing import List
+
 from dateutil import parser as dateutil_parser
 
-from utilities.image_validator import ImageValidator
-from utilities.config import Config
 from models.image import Image
 from strategies.image_source_strategy import ImageSourceStrategy
+from utilities.config import Config
 from utilities.image_utility import ImageUtility
+from utilities.image_validator import ImageValidator
 from utilities.network_utility import NetworkUtility
 
 
@@ -129,32 +127,19 @@ class APIImageSourceStrategy(ImageSourceStrategy):
         extracted_ids = await ImageUtility.extract_set_and_image_id(image.page_url)
         image_set_id = extracted_ids['image_set_id']
         image_id = extracted_ids['image_id']
-        request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
+        response_image = await ImageUtility.get_detail_image(image_set_id, image_id, semaphore)
+        if response_image is not None:
+            creation_date_string = response_image['datePublished']
+            if not any(response_image['contentUrl'] == url for _, url in image.image_urls):
+                image.image_urls.append((2, response_image['contentUrl']))
+            if not any(response_image['thumbnailUrl'] == url for _, url in image.image_urls):
+                image.image_urls.append((4, response_image['thumbnailUrl']))
+            image.image_urls = sorted(image.image_urls, key=lambda url: url[0])
+        elif image.date_modified is not None:
+            creation_date_string = image.date_modified
+        else:
+            creation_date_string = date.today().isoformat()
 
-        async with semaphore:
-            async with aiohttp.ClientSession() as session:
-                async with NetworkUtility.create_retry_client(session).get(request_url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'value' in data:
-                            images = data['value']
-                            decoded_image_id = unquote(image_id)
-                            response_image_list = [img for img in images if img['imageId'] == decoded_image_id]
-                            response_image = images[0] if len(response_image_list) == 0 else response_image_list[0]
-                            creation_date_string = response_image['datePublished']
-                            if not any(response_image['contentUrl'] == url for _, url in image.image_urls):
-                                image.image_urls.append((2, response_image['contentUrl']))
-                            if not any(response_image['thumbnailUrl'] == url for _, url in image.image_urls):
-                                image.image_urls.append((4, response_image['thumbnailUrl']))
-                            image.image_urls = sorted(image.image_urls, key=lambda url: url[0])
-                        else:
-                            creation_date_string = image.date_modified
-                        creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
-                        creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
-                        image.creation_date = creation_date_string_formatted
-                    else:
-                        logging.error(f"Failed to get detailed information for image: {image.page_url} "
-                                      f"for Reason: {response.status}: {response.reason}.")
-                        image.creation_date = dateutil_parser.parse(date.today().isoformat()) \
-                            .astimezone() \
-                            .strftime('%Y-%m-%dT%H%M%z')
+        creation_date_object = dateutil_parser.parse(creation_date_string).astimezone(timezone.utc)
+        creation_date_string_formatted = creation_date_object.strftime('%Y-%m-%dT%H%MZ')
+        image.creation_date = creation_date_string_formatted

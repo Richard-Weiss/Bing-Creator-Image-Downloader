@@ -1,9 +1,14 @@
+import asyncio
 import json
+import logging
 import re
+from urllib.parse import unquote
 
+import aiohttp
 import piexif
 import unicodedata
 
+from utilities.network_utility import NetworkUtility
 from strategies.image_source_strategy import ImageSourceStrategy
 from models.image import Image
 
@@ -64,6 +69,32 @@ class ImageUtility:
             exif_dict['0th'][piexif.ImageIFD.XPComment] = user_comment_utf_16le
             exif_bytes = piexif.dump(exif_dict)
             piexif.insert(exif_bytes, image.file_name)
+
+    @staticmethod
+    async def get_detail_image(image_set_id: str, image_id: str, semaphore: asyncio.Semaphore) -> dict | None:
+        """
+        Fetches the detailed information for an image from the detail API.
+        :param image_set_id: Supplied image set id to use in URL.
+        :param image_id: Supplied image id to use in URL.
+        :param semaphore: Semaphore to limit concurrency.
+        :return: Dictionary containing relevant data or None if the request failed.
+        """
+        request_url = f"https://www.bing.com/images/create/detail/async/{image_set_id}/?imageId={image_id}"
+
+        async with semaphore:
+            async with aiohttp.ClientSession() as session:
+                async with NetworkUtility.create_retry_client(session).get(request_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if 'value' in data and data['value'] is not None:
+                            images = data['value']
+                            decoded_image_id = unquote(image_id)
+                            detail_image_list = [img for img in images if img['imageId'] == decoded_image_id]
+                            detail_image = images[0] if len(detail_image_list) == 0 else detail_image_list[0]
+                            return detail_image
+                    else:
+                        logging.error(f"Failed to get detailed information for image: {image_set_id}/{image_id} "
+                                      f"for Reason: {response.status}: {response.reason}.")
 
     @staticmethod
     async def slugify(text: str) -> str:
