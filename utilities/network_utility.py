@@ -54,3 +54,18 @@ class NetworkUtility:
         if invalid_response:
             pass
         return invalid_response
+
+    @staticmethod
+    async def should_retry_get_detail_image(response: aiohttp.ClientResponse) -> bool:
+        """
+        Callback functions for the detail API for retrying.
+        :param response: The response to evaluate.
+        :return: Whether the request should be retried or not.
+        """
+        should_retry = True
+        if response.status == 200:
+            data = await response.json()
+            valid_response = data is not None and 'value' in data and data['value'] is not None
+            should_retry = not valid_response
+
+        return should_retry
