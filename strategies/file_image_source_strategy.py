@@ -6,6 +6,7 @@ from typing import List, Dict
 
 from dateutil import parser as dateutil_parser
 
+from utilities.config import Config
 from models.image import Image
 from strategies.image_source_strategy import ImageSourceStrategy
 from utilities.image_utility import ImageUtility
@@ -20,7 +21,7 @@ class FileImageSourceStrategy(ImageSourceStrategy):
         logging.info(f"Fetching metadata of images...")
         image_id_list = await FileImageSourceStrategy.__get_image_ids_from_file()
         semaphore = Semaphore(250)
-        images = await self.get_image_data_retry(image_id_list, semaphore, 5)
+        images = await self.get_image_data_retry(image_id_list, semaphore, Config().detail_max_attempts())
         images = [image for image in images if image is not None]
 
         return images
