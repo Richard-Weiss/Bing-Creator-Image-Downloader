@@ -29,6 +29,10 @@ collections_to_include = []
 # - file: Uses the images_clipboard.txt file to gather image data. Does not contain same thumbnail data as Collection API.
 method = "file"
 
+[detail_api]
+# Because the detail API does not always return valid values, it's retried the specified amount of times.
+max_attempts = 5
+
 [debug]
 
 # Enables additional debug statements and debug functionality.

@@ -2,10 +2,11 @@ import asyncio
 import logging
 from asyncio import Semaphore
 from datetime import timezone
-from typing import List
+from typing import List, Dict
 
 from dateutil import parser as dateutil_parser
 
+from utilities.config import Config
 from models.image import Image
 from strategies.image_source_strategy import ImageSourceStrategy
 from utilities.image_utility import ImageUtility
@@ -20,15 +21,50 @@ class FileImageSourceStrategy(ImageSourceStrategy):
         logging.info(f"Fetching metadata of images...")
         image_id_list = await FileImageSourceStrategy.__get_image_ids_from_file()
         semaphore = Semaphore(250)
+        images = await self.get_image_data_retry(image_id_list, semaphore, Config().detail_max_attempts())
+        images = [image for image in images if image is not None]
+
+        return images
+
+    @staticmethod
+    async def get_image_data_retry(image_id_list: List[Dict], semaphore: Semaphore, attempts: int) -> List[Image]:
+        """
+        Tries to get all image data until there are no None values or all attempts were used.
+        :param image_id_list: List of dictionaries containing the image_set_id and image_id.
+        :param semaphore: Used to regulate the maximum number of concurrent tasks.
+        :param attempts: How many times to retry.
+        :return: A list of :class:`Image` objects
+        """
+        current_images = await FileImageSourceStrategy.gather_images(image_id_list, semaphore)
+        attempts_made = 1
+        while None in current_images and attempts_made < attempts:
+            logging.warning(f"Failed to get detailed information for some images."
+                            f"Retrying ({attempts_made}) and merging...")
+            new_images = await FileImageSourceStrategy.gather_images(image_id_list, semaphore)
+            result = map(
+                lambda current_image, new_image: current_image if current_image is not None else new_image,
+                current_images,
+                new_images
+            )
+            current_images = list(result)
+            attempts_made += 1
+        return current_images
+
+    @staticmethod
+    async def gather_images(image_id_list: List[Dict], semaphore: Semaphore) -> List[Image]:
+        """
+        Gathers all images from the image_id_list.
+        :param image_id_list: List of dictionaries containing the image_set_id and image_id.
+        :param semaphore: Used to regulate the maximum number of concurrent tasks.
+        :return: List of :class:`Image` objects.
+        """
         tasks = [
             FileImageSourceStrategy.get_image_data(image_ids, semaphore, index)
             for index, image_ids
             in enumerate(image_id_list)
         ]
         images = await asyncio.gather(*tasks)
-        images = [image for image in images if image is not None]
-
-        return images
+        return list(images)
 
     @staticmethod
     async def get_image_data(image_ids, semaphore, index) -> Image | None:
