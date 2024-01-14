@@ -84,8 +84,6 @@ class ImageUtility:
         async with semaphore:
             async with aiohttp.ClientSession() as session:
                 retry_client = NetworkUtility.create_retry_client(session, attempts=8, max_timeout=128)
-                retry_client.retry_options.evaluate_response_callback = \
-                    NetworkUtility.should_retry_get_detail_image
                 async with retry_client.get(request_url) as response:
                     if response.status == 200:
                         data = await response.json()
