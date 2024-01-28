@@ -8,7 +8,7 @@ from dateutil import parser as dateutil_parser
 
 from utilities.config import Config
 from models.image import Image
-from strategies.image_source_strategy import ImageSourceStrategy
+from strategies.image_source.image_source_strategy import ImageSourceStrategy
 from utilities.image_utility import ImageUtility
 
 

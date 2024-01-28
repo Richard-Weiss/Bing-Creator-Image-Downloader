@@ -20,14 +20,31 @@ use_local_time_zone = true
 # Also use "Saved Images" for the default collection and not your localization.
 # To include specific collections add the title to the array.
 # For example for a collection called `Bing AI images` add the entry "Bing AI images".
-collections_to_include = []
+collections_to_include = ["Deletion Safe 1", "Deletion Safe 2"]
+
+[collection.delete_collection_after_download]
+# This setting is used to toggle the deletion setting below. It doesn't do anything on its own.
+# To use any method below set this to true.
+toggle = true
+
+# Sets the delete mode. Available options are:
+# - safest:
+    # Will delete the collection after downloading the images, but only if **all** images were downloaded successfully.
+    # Will not delete the collection if 1000 images were returned by the collection API,
+    # because it's not known whether the collection is complete or not.
+# - safeish:
+    # Same as safest, but delete the collection if all non downloaded images have the reason "Not found" i.e. 404.
+    # This means that all images that were actually still on Microsoft's servers were downloaded.
+# - dangerous:
+    # Will delete the collection after downloading the images, regardless whether all images were downloaded or not.
+mode = "safest"
 
 [image_source]
 # The image source to use.
 # Available options are:
 # - api: Uses the collection API to gather image data. Limited to 1000 images.
 # - file: Uses the images_clipboard.txt file to gather image data. Does not contain same thumbnail data as Collection API.
-method = "file"
+method = "api"
 
 [detail_api]
 # Because the detail API does not always return valid values, it's retried the specified amount of times.

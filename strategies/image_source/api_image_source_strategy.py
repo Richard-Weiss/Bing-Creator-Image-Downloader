@@ -10,7 +10,7 @@ from typing import List
 from dateutil import parser as dateutil_parser
 
 from models.image import Image
-from strategies.image_source_strategy import ImageSourceStrategy
+from strategies.image_source.image_source_strategy import ImageSourceStrategy
 from utilities.config import Config
 from utilities.image_utility import ImageUtility
 from utilities.image_validator import ImageValidator
@@ -79,6 +79,7 @@ class APIImageSourceStrategy(ImageSourceStrategy):
                             image_url = custom_data['MediaUrl']
                             image_prompt = custom_data['ToolTip']
                             date_modified = item['dateModified']
+                            collection_id = collection['id']
                             collection_name = collection['title']
                             image_urls = [(1, image_url)]
                             if 'thumbnails' in item['content']:
@@ -90,6 +91,7 @@ class APIImageSourceStrategy(ImageSourceStrategy):
                             image = Image(
                                 image_urls=image_urls,
                                 prompt=image_prompt,
+                                collection_id=collection_id,
                                 collection_name=collection_name,
                                 page_url=image_page_url,
                                 index=str(index).zfill(4),

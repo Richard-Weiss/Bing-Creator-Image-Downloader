@@ -21,7 +21,7 @@ class NetworkUtility:
         session = requests.session()
         statuses = {x for x in range(100, 600) if x != 200}
         retries = Retry(total=5, backoff_factor=1, status_forcelist=statuses)
-        session.mount('http://', HTTPAdapter(max_retries=retries))
+        session.mount('https://', HTTPAdapter(max_retries=retries))
 
         return session
 

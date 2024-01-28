@@ -9,7 +9,7 @@ import piexif
 import unicodedata
 
 from utilities.network_utility import NetworkUtility
-from strategies.image_source_strategy import ImageSourceStrategy
+from strategies.image_source.image_source_strategy import ImageSourceStrategy
 from models.image import Image
 
 
@@ -41,10 +41,10 @@ class ImageUtility:
         :return: The correct image source strategy.
         """
         if setting == 'api':
-            from strategies.api_image_source_strategy import APIImageSourceStrategy
+            from strategies.image_source.api_image_source_strategy import APIImageSourceStrategy
             return APIImageSourceStrategy()
         elif setting == 'file':
-            from strategies.file_image_source_strategy import FileImageSourceStrategy
+            from strategies.image_source.file_image_source_strategy import FileImageSourceStrategy
             return FileImageSourceStrategy()
         else:
             raise Exception(f"Invalid image source setting: {setting}")
