@@ -20,12 +20,12 @@ use_local_time_zone = true
 # Also use "Saved Images" for the default collection and not your localization.
 # To include specific collections add the title to the array.
 # For example for a collection called `Bing AI images` add the entry "Bing AI images".
-collections_to_include = ["Deletion Safe 1", "Deletion Safe 2"]
+collections_to_include = []
 
 [collection.delete_collection_after_download]
 # This setting is used to toggle the deletion setting below. It doesn't do anything on its own.
 # To use any method below set this to true.
-toggle = true
+toggle = false
 
 # Sets the delete mode. Available options are:
 # - safest:
@@ -44,7 +44,7 @@ mode = "safest"
 # Available options are:
 # - api: Uses the collection API to gather image data. Limited to 1000 images.
 # - file: Uses the images_clipboard.txt file to gather image data. Does not contain same thumbnail data as Collection API.
-method = "api"
+method = "file"
 
 [detail_api]
 # Because the detail API does not always return valid values, it's retried the specified amount of times.
