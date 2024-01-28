@@ -1,22 +1,23 @@
 import asyncio
-from io import BytesIO
 import logging
 import os
+import string
 import zipfile
+from datetime import date
+from io import BytesIO
 from typing import List
 
 import aiofiles.tempfile
 import aiohttp
 from PIL import Image as PIL_Image
-import string
 from dateutil import parser as dateutil_parser
 
-from utilities.statistics import Statistics
-from utilities.config import Config
 from models.image import Image
+from utilities.collection_utility import CollectionUtility
+from utilities.config import Config
 from utilities.image_utility import ImageUtility
 from utilities.network_utility import NetworkUtility
-from datetime import date
+from utilities.statistics import Statistics
 
 
 class ImageDownload:
@@ -26,7 +27,7 @@ class ImageDownload:
     """
 
     def __init__(self):
-        self.__config = Config().value
+        self.__config = Config()
         self.__images: List[Image] = []
         self.total_image_count = 0
         self.successful_image_count = 0
@@ -40,7 +41,7 @@ class ImageDownload:
         High level method that serves as the entry point.
         :return: None
         """
-        strategy_method = self.__config['image_source']['method']
+        strategy_method = self.__config.image_source_method
         image_source_strategy = ImageUtility.get_image_source_strategy(strategy_method)
         self.__images = await image_source_strategy.get_images()
         self.total_image_count = len(self.__images)
@@ -67,7 +68,10 @@ class ImageDownload:
                         filename=image.file_name,
                         arcname=os.path.join(image.collection_name, os.path.basename(image.file_name))
                     )
-                if self.__config['debug']['detailed_statistics']:
+                if (self.__config.image_source_method == 'api'
+                        and self.__config.delete_collection_after_download_toggle):
+                    self.__delete_collection()
+                if self.__config.detailed_statistics:
                     statistics_str = Statistics(self.__images).create_statistics()
                     logging.info("Statistics zipped.")
                     zip_file.writestr('detailed_statistics.md', statistics_str)
@@ -90,10 +94,10 @@ class ImageDownload:
                         image.attempts = image.attempts + 1
                         if response.status == 200 and response.content_type == 'image/jpeg':
                             filename_image_prompt = await ImageUtility.slugify(image.prompt)
-                            if self.__config['filename']['use_local_time_zone']:
-                                creation_date = dateutil_parser.parse(image.creation_date) \
-                                    .astimezone() \
-                                    .strftime('%Y-%m-%dT%H%M%z')
+                            if self.__config.use_local_time_zone:
+                                creation_date = (dateutil_parser.parse(image.creation_date)
+                                                 .astimezone()
+                                                 .strftime('%Y-%m-%dT%H%M%z'))
                             else:
                                 creation_date = image.creation_date
                             file_name_substitute_dict = {
@@ -102,7 +106,7 @@ class ImageDownload:
                                 'prompt': filename_image_prompt[:50],
                                 'sep': '_'
                             }
-                            template = string.Template(self.__config['filename']['filename_pattern'])
+                            template = string.Template(self.__config.filename_pattern)
                             file_name_formatted = template.safe_substitute(file_name_substitute_dict)
                             image_bytes = await response.read()
                             with PIL_Image.open(BytesIO(image_bytes)) as pil_image:
@@ -120,6 +124,7 @@ class ImageDownload:
                             await ImageUtility.add_exif_metadata(image)
                             logging.info(f"Successfully downloaded image #{image.index} from: {url}.")
                             image.is_success = True
+                            image.status_code = response.status
                             image.reason = response.reason
                             return
                         else:
@@ -128,6 +133,7 @@ class ImageDownload:
                             if index != len(image.image_urls) - 1:
                                 warning_output += " -> Retrying with next URL."
                             logging.warning(warning_output)
+                    image.status_code = response.status
                     image.reason = response.reason
             logging.error(f"Image #{image.index}: Failed to download from any sources.")
         except Exception as e:
@@ -135,3 +141,15 @@ class ImageDownload:
                 logging.exception(e)
             else:
                 logging.error(e)
+
+    def __delete_collection(self) -> None:
+        """
+        Deletes the collection by the method specified in the config.
+        :return: None
+        """
+        deletion_strategy = (CollectionUtility
+                             .get_collection_deletion_strategy(self.__config.delete_collection_after_download_mode))
+        if deletion_strategy:
+            deletion_strategy.delete_collection(self.__images)
+        else:
+            logging.warning("Collections will not be deleted as no valid method was specified in the config.")
